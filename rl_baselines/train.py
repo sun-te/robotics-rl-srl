@@ -174,7 +174,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train script for RL algorithms")
     parser.add_argument('--algo', default='ppo2', choices=list(registered_rl.keys()), help='RL algo to use',
                         type=str)
-    parser.add_argument('--env', type=str, help='environment ID', default='KukaButtonGymEnv-v0',
+    parser.add_argument('--env', type=str, help='environment ID', default='MobileRobotGymEnv-v0',
                         choices=list(registered_env.keys()))
     parser.add_argument('--seed', type=int, default=0, help='random seed (default: 0)')
     parser.add_argument('--episode_window', type=int, default=40,
