@@ -203,7 +203,7 @@ class SACModel(BaseRLObject):
             else:
                 pre_tanh_value = distribution.sample().detach()
             # Squash the value
-            action = F.tanh(pre_tanh_value)
+            action = th.tanh(pre_tanh_value)
             # Correction to the log prob because of the squashing function
             epsilon = 1e-6
             log_pi = distribution.log_prob(pre_tanh_value) - th.log(1 - action ** 2 + epsilon)
