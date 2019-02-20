@@ -74,7 +74,28 @@ class OmniRobotEnv(SRLGymEnv):
 
     def __init__(self, renders=False, name="Omnirobot", is_discrete=True, save_path='srl_zoo/data/', state_dim=-1,
                  learn_states=False, srl_model="raw_pixels", record_data=False, action_repeat=1, random_target=True,
-                 shape_reward=False, env_rank=0, srl_pipe=None, **_):
+                 shape_reward=False, env_rank=0, srl_pipe=None, use_position=False, use_velocity=False,
+                 use_wheel_speed=False, **_):
+        """
+        TODO complete doc
+        :param renders:
+        :param name:
+        :param is_discrete:
+        :param save_path:
+        :param state_dim:
+        :param learn_states:
+        :param srl_model:
+        :param record_data:
+        :param action_repeat:
+        :param random_target:
+        :param shape_reward:
+        :param env_rank:
+        :param srl_pipe:
+        :param use_position:
+        :param use_velocity:
+        :param use_wheel_speed:
+        :param _:
+        """
 
         super(OmniRobotEnv, self).__init__(srl_model=srl_model,
                                            relative_pos=RELATIVE_POS,
@@ -88,9 +109,13 @@ class OmniRobotEnv(SRLGymEnv):
         use_srl = srl_model != 'raw_pixels'
         self.use_srl = use_srl or use_ground_truth
         self.use_ground_truth = use_ground_truth
-        self.use_joints = False
+        #self.use_joints = False
         self.relative_pos = RELATIVE_POS
         self._is_discrete = is_discrete
+        self.use_position = use_position
+        self.use_velocity = use_velocity
+        self.use_wheel_speed = use_wheel_speed
+
         self.observation = []
         # Start simulation with first observation
         self._env_step_counter = 0
@@ -107,10 +132,18 @@ class OmniRobotEnv(SRLGymEnv):
         if self._is_discrete:
             self.action_space = spaces.Discrete(N_DISCRETE_ACTIONS)
         else:
-            action_dim = 2
-            self.action_space = RingBox(positive_low=ACTION_POSITIVE_LOW, positive_high=ACTION_POSITIVE_HIGH, \
-                                           negative_low=ACTION_NEGATIVE_LOW, negative_high=ACTION_NEGATIVE_HIGH, \
-                                           shape=np.array([action_dim]), dtype=np.float32)
+            if self.use_position:
+                action_dim = 2
+                self.action_space = RingBox(positive_low=ACTION_POSITIVE_LOW, positive_high=ACTION_POSITIVE_HIGH,
+                                            negative_low=ACTION_NEGATIVE_LOW, negative_high=ACTION_NEGATIVE_HIGH,
+                                            shape=np.array([action_dim]), dtype=np.float32)
+            elif self.use_velocity:
+                pass
+            elif self.use_wheel_speed:
+                pass
+            else:
+                pass
+
         # SRL model
         if self.use_srl:
             if use_ground_truth:
@@ -131,7 +164,8 @@ class OmniRobotEnv(SRLGymEnv):
 
         if USING_OMNIROBOT_SIMULATOR:
             self.socket = OmniRobotSimulatorSocket(
-                output_size=[RENDER_WIDTH, RENDER_HEIGHT], random_target=self._random_target)
+                output_size=[RENDER_WIDTH, RENDER_HEIGHT], random_target=self._random_target,
+                use_position=self.use_position, use_velocity=self.use_velocity, use_wheel_speed=self.use_wheel_speed)
         else:
             # Initialize Baxter effector by connecting to the Gym bridge ROS node:
             self.context = zmq.Context()
@@ -159,6 +193,7 @@ class OmniRobotEnv(SRLGymEnv):
     def actionPolicyTowardTarget(self):
         """
         :return: (int) action
+        TODO complete with other continuous actions (vel, wheel speed)
         """
         if abs(self.robot_pos[0] - self.target_pos[0]) > abs(self.robot_pos[1] - self.target_pos[1]):
 
@@ -196,7 +231,9 @@ class OmniRobotEnv(SRLGymEnv):
 
         # Send the action to the server
         self.socket.send_json(
-            {"command": "action", "action": self.action, "is_discrete": self._is_discrete})
+            {"command": "action", "action": self.action, "is_discrete": self._is_discrete,
+             "use_position": self.use_position, "use_velocity": self.use_velocity,
+             "use_wheel_speed": self.use_wheel_speed})
 
         # Receive state data (position, etc), important to update state related values
         self.getEnvState()
@@ -340,9 +377,8 @@ class OmniRobotEnv(SRLGymEnv):
         with open(CAMERA_INFO_PATH, 'r') as stream:
             try:
                 contents = yaml.load(stream)
-                camera_matrix = np.array(contents['camera_matrix']['data']).reshape((3,3))
-                distortion_coefficients = np.array(
-                contents['distortion_coefficients']['data']).reshape((1, 5))
+                camera_matrix = np.array(contents['camera_matrix']['data']).reshape((3, 3))
+                distortion_coefficients = np.array(contents['distortion_coefficients']['data']).reshape((1, 5))
             except yaml.YAMLError as exc:
                 print(exc)
 
@@ -353,19 +389,24 @@ class OmniRobotEnv(SRLGymEnv):
         pos_transformer = PosTransformer(camera_matrix, distortion_coefficients,
                                               CAMERA_POS_COORD_GROUND, camera_rot_mat_coord_ground)
 
-        self.boundary_coner_pixel_pos = np.zeros((2,4))
+        self.boundary_coner_pixel_pos = np.zeros((2, 4))
         # assume that image is undistorted
-        self.boundary_coner_pixel_pos[:,0] = pos_transformer.phyPosGround2PixelPos([MIN_X, MIN_Y], return_distort_image_pos=False).squeeze()
-        self.boundary_coner_pixel_pos[:,1] = pos_transformer.phyPosGround2PixelPos([MAX_X, MIN_Y], return_distort_image_pos=False).squeeze()
-        self.boundary_coner_pixel_pos[:,2] = pos_transformer.phyPosGround2PixelPos([MAX_X, MAX_Y], return_distort_image_pos=False).squeeze()
-        self.boundary_coner_pixel_pos[:,3] = pos_transformer.phyPosGround2PixelPos([MIN_X, MAX_Y], return_distort_image_pos=False).squeeze()
+        self.boundary_coner_pixel_pos[:, 0] = pos_transformer.phyPosGround2PixelPos(
+            [MIN_X, MIN_Y], return_distort_image_pos=False).squeeze()
+        self.boundary_coner_pixel_pos[:, 1] = pos_transformer.phyPosGround2PixelPos(
+            [MAX_X, MIN_Y], return_distort_image_pos=False).squeeze()
+        self.boundary_coner_pixel_pos[:, 2] = pos_transformer.phyPosGround2PixelPos(
+            [MAX_X, MAX_Y], return_distort_image_pos=False).squeeze()
+        self.boundary_coner_pixel_pos[:, 3] = pos_transformer.phyPosGround2PixelPos(
+            [MIN_X, MAX_Y], return_distort_image_pos=False).squeeze()
 
         # transform the corresponding points into cropped image
-        self.boundary_coner_pixel_pos = self.boundary_coner_pixel_pos - (np.array(ORIGIN_SIZE) - np.array(CROPPED_SIZE)).reshape(2,1) / 2.0
+        self.boundary_coner_pixel_pos = self.boundary_coner_pixel_pos - \
+                                        (np.array(ORIGIN_SIZE) - np.array(CROPPED_SIZE)).reshape(2, 1) / 2.0
         
         # transform the corresponding points into resized image (RENDER_WIDHT, RENDER_HEIGHT)
-        self.boundary_coner_pixel_pos[0,:] *=  RENDER_WIDTH/CROPPED_SIZE[0]
-        self.boundary_coner_pixel_pos[1,:] *=  RENDER_HEIGHT/CROPPED_SIZE[1]
+        self.boundary_coner_pixel_pos[0, :] *= RENDER_WIDTH/CROPPED_SIZE[0]
+        self.boundary_coner_pixel_pos[1, :] *= RENDER_HEIGHT/CROPPED_SIZE[1]
         
         self.boundary_coner_pixel_pos = np.around(self.boundary_coner_pixel_pos).astype(np.int)
 
@@ -374,7 +415,11 @@ class OmniRobotEnv(SRLGymEnv):
         visualize the unvisible boundary, should call initVisualizeBoundary firstly
         """
         self.observation_with_boundary = self.observation.copy()
-        cv2.line(self.observation_with_boundary,tuple(self.boundary_coner_pixel_pos[:,0]),tuple(self.boundary_coner_pixel_pos[:,1]),(200,0,0),3) 
-        cv2.line(self.observation_with_boundary,tuple(self.boundary_coner_pixel_pos[:,1]),tuple(self.boundary_coner_pixel_pos[:,2]),(200,0,0),3) 
-        cv2.line(self.observation_with_boundary,tuple(self.boundary_coner_pixel_pos[:,2]),tuple(self.boundary_coner_pixel_pos[:,3]),(200,0,0),3) 
-        cv2.line(self.observation_with_boundary,tuple(self.boundary_coner_pixel_pos[:,3]),tuple(self.boundary_coner_pixel_pos[:,0]),(200,0,0),3) 
+        cv2.line(self.observation_with_boundary, tuple(self.boundary_coner_pixel_pos[:, 0]),
+                 tuple(self.boundary_coner_pixel_pos[:, 1]), (200, 0, 0), 3)
+        cv2.line(self.observation_with_boundary, tuple(self.boundary_coner_pixel_pos[:, 1]),
+                 tuple(self.boundary_coner_pixel_pos[:, 2]), (200, 0, 0), 3)
+        cv2.line(self.observation_with_boundary, tuple(self.boundary_coner_pixel_pos[:, 2]),
+                 tuple(self.boundary_coner_pixel_pos[:, 3]), (200, 0, 0), 3)
+        cv2.line(self.observation_with_boundary, tuple(self.boundary_coner_pixel_pos[:, 3]),
+                 tuple(self.boundary_coner_pixel_pos[:, 0]), (200, 0, 0), 3)

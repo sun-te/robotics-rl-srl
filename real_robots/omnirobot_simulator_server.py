@@ -22,7 +22,7 @@ NOISE_VAR_ROBOT_SIZE_PROPOTION = 0.05  # noise of robot size propotion
 NOISE_VAR_TARGET_SIZE_PROPOTION = 0.05
 
 
-class OmniRobotEnvRender():
+class OmniRobotEnvRender(object):
     def __init__(self, init_x, init_y, init_yaw, origin_size, cropped_size,
                  back_ground_path, camera_info_path,
                  robot_marker_path, robot_marker_margin, target_marker_path, target_marker_margin,
@@ -175,7 +175,8 @@ class OmniRobotEnvRender():
         self.target_bg_img = self.target_render.addMarker(self.bg_img,
                                                           self.pos_transformer.phyPosGround2PixelPos(
                                                               self.target_pos.reshape(2, 1)),
-                                                          self.target_yaw, np.random.randn() * NOISE_VAR_TARGET_SIZE_PROPOTION + 1.0)
+                                                          self.target_yaw,
+                                                          np.random.randn() * NOISE_VAR_TARGET_SIZE_PROPOTION + 1.0)
 
     def renderRobot(self):
         """
@@ -291,10 +292,10 @@ class OmniRobotEnvRender():
         cos_direction = np.cos(self.robot_yaw)
         sin_direction = np.sin(self.robot_yaw)
 
-        ground_pos_cmd_x = self.robot_pos[0] + (self.last_linear_velocity_cmd[0] *
-                                                cos_direction - self.last_linear_velocity_cmd[1] * sin_direction)/RL_CONTROL_FREQ
-        ground_pos_cmd_y = self.robot_pos[1] + (self.last_linear_velocity_cmd[1] *
-                                                cos_direction + self.last_linear_velocity_cmd[0] * sin_direction)/RL_CONTROL_FREQ
+        ground_pos_cmd_x = self.robot_pos[0] + (self.last_linear_velocity_cmd[0] * cos_direction
+                                                - self.last_linear_velocity_cmd[1] * sin_direction)/RL_CONTROL_FREQ
+        ground_pos_cmd_y = self.robot_pos[1] + (self.last_linear_velocity_cmd[1] * cos_direction
+                                                + self.last_linear_velocity_cmd[0] * sin_direction)/RL_CONTROL_FREQ
         ground_yaw_cmd = self.robot_yaw + self.last_rot_velocity_cmd/RL_CONTROL_FREQ
         self.setRobotCmd(ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd)
 
@@ -363,6 +364,7 @@ class OmniRobotSimulatorSocket(OmnirobotManagerBase):
         '''
         super(OmniRobotSimulatorSocket, self).__init__(
             second_cam_topic=SECOND_CAM_TOPIC)
+
         defalt_args = {
             "back_ground_path": "real_robots/omnirobot_utils/back_ground.jpg",
             "camera_info_path": CAMERA_INFO_PATH,
