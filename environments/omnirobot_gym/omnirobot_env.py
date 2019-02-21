@@ -108,8 +108,8 @@ class OmniRobotEnv(SRLGymEnv):
         use_srl = srl_model != 'raw_pixels'
         self.use_srl = use_srl or use_ground_truth
         self.use_ground_truth = use_ground_truth
-        #self.use_joints = False
         self.relative_pos = RELATIVE_POS
+        # Action's type
         self._is_discrete = is_discrete
         self.use_position = use_position
         self.use_velocity = use_velocity
@@ -138,11 +138,11 @@ class OmniRobotEnv(SRLGymEnv):
             elif self.use_velocity:
                 # TODO: define constants for velocity limit
                 action_dim = (3,)
-                self.action_space = BiggerBox(limits=np.array([0.5, 0.5, 0.5]), shape=action_dim, dtype=np.float32)
+                self.action_space = BiggerBox(limits=np.array([0.7, 0.7, 0.7]), shape=action_dim, dtype=np.float32)
             elif self.use_wheel_speed:
                 # TODO: define constants for angular wheel speed limit
                 action_dim = (3,)
-                self.action_space = BiggerBox(limits=np.array([0.5, 0.5, 0.5]), shape=action_dim, dtype=np.float32)
+                self.action_space = BiggerBox(limits=np.array([np.pi/3, np.pi/3, np.pi/3]), shape=action_dim, dtype=np.float32)
             else:
                 pass
 

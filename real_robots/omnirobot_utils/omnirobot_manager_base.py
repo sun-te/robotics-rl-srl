@@ -1,7 +1,7 @@
 from __future__ import division, print_function, absolute_import
 
 from real_robots.constants import *
-
+from real_robots.omnirobot_utils.utils import wheelSpeed2pos, velocity2pos
 
 class OmnirobotManagerBase(object):
     def __init__(self, second_cam_topic=None):
@@ -87,13 +87,14 @@ class OmnirobotManagerBase(object):
         :return:
         """
         speed_x, speed_y, speed_yaw = msg['action']
-        if True:
+        ground_pos_cmd_x, ground_pos_cmd_y, _ = velocity2pos(self.robot, speed_x, speed_y, speed_yaw)
+
+        if MIN_X < ground_pos_cmd_x < MAX_X and MIN_Y < ground_pos_cmd_y < MAX_Y:
             self.robot.moveByVelocityCmd(speed_x, speed_y, speed_yaw)
             has_bumped = False
         else:
             has_bumped = True
         return has_bumped
-
 
     def moveByWheelsCmd(self, msg):
         """
@@ -102,7 +103,9 @@ class OmnirobotManagerBase(object):
         :return:
         """
         left_speed, front_speed, right_speed = msg['action']
-        if True:
+        ground_pos_cmd_x, ground_pos_cmd_y, _ = velocity2pos(self.robot, left_speed, front_speed, right_speed)
+
+        if MIN_X < ground_pos_cmd_x < MAX_X and MIN_Y < ground_pos_cmd_y < MAX_Y:
             self.robot.moveByWheelsCmd(left_speed, front_speed, right_speed)
             has_bumped = False
         else:

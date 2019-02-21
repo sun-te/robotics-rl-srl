@@ -4,6 +4,44 @@ from gym import logger
 import numpy as np
 import cv2
 
+from real_robots.constants import *
+
+
+def velocity2pos(robot, speed_x, speed_y, speed_yaw):
+    # calculate the robot position that it should be at this moment, so it should be driven by last command
+    # Assume in 1/RL_CONTROL_FREQ, the heading remains the same (not true,
+    #   but should be approximately work if RL_CONTROL_FREQ is high enough)
+    # translate the last velocity cmd in robot local coordiante to position cmd in gound coordiante
+    cos_direction = np.cos(robot.robot_yaw)
+    sin_direction = np.sin(robot.robot_yaw)
+
+    ground_pos_cmd_x = robot.robot_pos[0] + (speed_x * cos_direction - speed_y * sin_direction) / RL_CONTROL_FREQ
+    ground_pos_cmd_y = robot.robot_pos[1] + (speed_y * cos_direction + speed_x * sin_direction) / RL_CONTROL_FREQ
+    ground_yaw_cmd = robot.robot_yaw + speed_yaw / RL_CONTROL_FREQ
+    return ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd
+
+
+def wheelSpeed2pos(robot, left_speed, front_speed, right_speed):
+    # calculate the robot position by omnirobot's kinematic equations
+    # Assume in 1/RL_CONTROL_FREQ, the heading remains the same (not true,
+    # but should be approximately work if RL_CONTROL_FREQ is high enough)
+
+    # translate the last wheel speeds cmd in last velocity cmd
+    local_speed_x = left_speed / np.sqrt(3.0) - right_speed / np.sqrt(3.0)
+    local_speed_y = - front_speed / 1.5 + left_speed / 3.0 + right_speed / 3.0
+    local_rot_speed = - front_speed / (3.0 * OMNIROBOT_L) - left_speed / (3.0 * OMNIROBOT_L) \
+                      - right_speed / (3.0 * OMNIROBOT_L)
+
+    # translate the last velocity cmd in robot local coordiante to position cmd in gound coordiante
+    cos_direction = np.cos(robot.robot_yaw)
+    sin_direction = np.sin(robot.robot_yaw)
+
+    ground_pos_cmd_x = robot.robot_pos[0] + (local_speed_x *
+                                            cos_direction - local_speed_y * sin_direction) / RL_CONTROL_FREQ
+    ground_pos_cmd_y = robot.robot_pos[1] + (local_speed_y *
+                                            cos_direction + local_speed_x * sin_direction) / RL_CONTROL_FREQ
+    ground_yaw_cmd = robot.robot_yaw + local_rot_speed / RL_CONTROL_FREQ
+    return ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd
 
 class PosTransformer(object):
     def __init__(self, camera_mat: np.ndarray, dist_coeffs: np.ndarray,

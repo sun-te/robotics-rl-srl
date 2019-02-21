@@ -10,7 +10,7 @@ from real_robots.constants import *
 from real_robots.omnirobot_utils.marker_finder import MakerFinder
 from real_robots.omnirobot_utils.marker_render import MarkerRender
 from real_robots.omnirobot_utils.omnirobot_manager_base import OmnirobotManagerBase
-from real_robots.omnirobot_utils.utils import PosTransformer
+from real_robots.omnirobot_utils.utils import PosTransformer, wheelSpeed2pos, velocity2pos
 
 assert USING_OMNIROBOT_SIMULATOR, "Please set USING_OMNIROBOT_SIMULATOR to True in real_robots/constants.py"
 NOISE_VAR_ROBOT_POS = 0.01  # meter
@@ -285,18 +285,9 @@ class OmniRobotEnvRender(object):
         :param speed_y: (float) linear speed along y-axis (m/s) (left-right), in robot local coordinate
         :param speed_yaw: (float) rotation speed of robot around z-axis (rad/s), in robot local coordinate
         """
-        # calculate the robot position that it should be at this moment, so it should be driven by last command
-        # Assume in 1/RL_CONTROL_FREQ, the heading remains the same (not true,
-        #   but should be approximately work if RL_CONTROL_FREQ is high enough)
-        # translate the last velocity cmd in robot local coordiante to position cmd in gound coordiante
-        cos_direction = np.cos(self.robot_yaw)
-        sin_direction = np.sin(self.robot_yaw)
-
-        ground_pos_cmd_x = self.robot_pos[0] + (self.last_linear_velocity_cmd[0] * cos_direction
-                                                - self.last_linear_velocity_cmd[1] * sin_direction)/RL_CONTROL_FREQ
-        ground_pos_cmd_y = self.robot_pos[1] + (self.last_linear_velocity_cmd[1] * cos_direction
-                                                + self.last_linear_velocity_cmd[0] * sin_direction)/RL_CONTROL_FREQ
-        ground_yaw_cmd = self.robot_yaw + self.last_rot_velocity_cmd/RL_CONTROL_FREQ
+        ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd = velocity2pos(self, self.last_linear_velocity_cmd[0],
+                                                                          self.last_linear_velocity_cmd[1],
+                                                                          self.last_rot_velocity_cmd)
         self.setRobotCmd(ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd)
 
         # save the command of this moment
@@ -313,30 +304,9 @@ class OmniRobotEnvRender(object):
         :param front_speed: (float) linear speed of front wheel (meter/s)
         :param right_speed: (float) linear speed of right wheel (meter/s)
         """
-
-        # calculate the robot position by omnirobot's kinematic equations
-        # Assume in 1/RL_CONTROL_FREQ, the heading remains the same (not true,
-        # but should be approximately work if RL_CONTROL_FREQ is high enough)
-
-        # translate the last wheel speeds cmd in last velocity cmd
-        local_speed_x = self.last_wheel_speeds_cmd[0] / np.sqrt(3.0) \
-            - self.last_wheel_speeds_cmd[2] / np.sqrt(3.0)
-        local_speed_y = - self.last_wheel_speeds_cmd[1] / 1.5 + \
-            self.last_wheel_speeds_cmd[0] / 3.0 + \
-            self.last_wheel_speeds_cmd[2] / 3.0
-        local_rot_speed = - self.last_wheel_speeds_cmd[1] / (3.0 * OMNIROBOT_L) \
-            - self.last_wheel_speeds_cmd[0] / (3.0 * OMNIROBOT_L) \
-            - self.last_wheel_speeds_cmd[2] / (3.0 * OMNIROBOT_L)
-            
-        # translate the last velocity cmd in robot local coordiante to position cmd in gound coordiante
-        cos_direction = np.cos(self.robot_yaw)
-        sin_direction = np.sin(self.robot_yaw)
-
-        ground_pos_cmd_x = self.robot_pos[0] + (local_speed_x *
-                                                cos_direction - local_speed_y * sin_direction)/RL_CONTROL_FREQ
-        ground_pos_cmd_y = self.robot_pos[1] + (local_speed_y *
-                                                cos_direction + local_speed_x * sin_direction)/RL_CONTROL_FREQ
-        ground_yaw_cmd = self.robot_yaw + local_rot_speed/RL_CONTROL_FREQ
+        ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd = wheelSpeed2pos(self, self.last_wheel_speeds_cmd[0],
+                                                                            self.last_wheel_speeds_cmd[1],
+                                                                            self.last_wheel_speeds_cmd[2])
         self.setRobotCmd(ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd)
 
         self.last_wheel_speeds_cmd = np.float32(
