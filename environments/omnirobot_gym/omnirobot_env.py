@@ -9,14 +9,13 @@ from gym import spaces
 import torch as th
 import matplotlib.pyplot as plt
 import seaborn as sns
-import subprocess
 import yaml
 # Konwn issue: - No module named 'scipy.spatial.transform', To resolve, try pip3 install scipy==1.2
 from scipy.spatial.transform import Rotation as R
 
 from environments.srl_env import SRLGymEnv
 from real_robots.constants import *
-from real_robots.omnirobot_utils.utils import RingBox, PosTransformer
+from real_robots.omnirobot_utils.utils import BiggerBox, PosTransformer
 from state_representation.episode_saver import EpisodeSaver
 
 if USING_OMNIROBOT_SIMULATOR:
@@ -133,14 +132,17 @@ class OmniRobotEnv(SRLGymEnv):
             self.action_space = spaces.Discrete(N_DISCRETE_ACTIONS)
         else:
             if self.use_position:
-                action_dim = 2
-                self.action_space = RingBox(positive_low=ACTION_POSITIVE_LOW, positive_high=ACTION_POSITIVE_HIGH,
-                                            negative_low=ACTION_NEGATIVE_LOW, negative_high=ACTION_NEGATIVE_HIGH,
-                                            shape=np.array([action_dim]), dtype=np.float32)
+                action_dim = (2,)
+                self.action_space = BiggerBox(limits=np.array([ACTION_POSITIVE_HIGH, ACTION_POSITIVE_HIGH]),
+                                              shape=action_dim, dtype=np.float32)
             elif self.use_velocity:
-                pass
+                # TODO: define constants for velocity limit
+                action_dim = (3,)
+                self.action_space = BiggerBox(limits=np.array([0.5, 0.5, 0.5]), shape=action_dim, dtype=np.float32)
             elif self.use_wheel_speed:
-                pass
+                # TODO: define constants for angular wheel speed limit
+                action_dim = (3,)
+                self.action_space = BiggerBox(limits=np.array([0.5, 0.5, 0.5]), shape=action_dim, dtype=np.float32)
             else:
                 pass
 

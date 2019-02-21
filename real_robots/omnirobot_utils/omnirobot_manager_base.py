@@ -167,7 +167,7 @@ class OmnirobotManagerBase(object):
                 has_bumped = self.moveContinousAction(msg)
             elif msg['use_velocity']:
                 has_bumped = self.moveByVelocityCmd(msg)
-            elif msg['use_wheel_position']:
+            elif msg['use_wheel_speed']:
                 has_bumped = self.moveByWheelsCmd(msg)
             else:
                 pass
