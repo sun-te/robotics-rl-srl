@@ -211,3 +211,7 @@ If you use this toolbox, please cite:
   year={2018}
 }
 ```
+
+## TODO
+- Action space, constraint the acceleration by velocity constraint
+- Out of boundary issue
