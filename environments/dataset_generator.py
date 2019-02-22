@@ -8,7 +8,6 @@ import shutil
 import time
 
 import numpy as np
-from gym.spaces import prng
 from stable_baselines import PPO2
 from stable_baselines.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines.common.policies import CnnPolicy
@@ -48,12 +47,14 @@ def env_thread(args, thread_num, partition=True, use_ppo2=False):
         "random_target": args.random_target,
         "force_down": True,
         "is_discrete": not args.continuous_actions,
+        "use_position": args.position,
+        "use_velocity": args.velocity,
+        "use_wheel_speed": args.wheel_speed,
         "renders": thread_num == 0 and args.display,
         "record_data": not args.no_record_data,
         "multi_view": args.multi_view,
         "save_path": args.save_path,
-        "shape_reward": args.shape_reward #,
-        #"env_rank": thread_num
+        "shape_reward": args.shape_reward
     }
 
     if partition:
@@ -84,7 +85,7 @@ def env_thread(args, thread_num, partition=True, use_ppo2=False):
                (thread_num if thread_num <= args.num_episode % args.num_cpu else args.num_episode % args.num_cpu)
 
         env.seed(seed)
-        prng.seed(seed)  # this is for the sample() function from gym.space
+        env.action_space.seed(seed) # this is for the sample() function from gym.space
         obs = env.reset()
         done = False
         t = 0
@@ -131,6 +132,11 @@ def main():
     parser.add_argument('--max-distance', type=float, default=0.28,
                         help='Beyond this distance from the goal, the agent gets a negative reward')
     parser.add_argument('-c', '--continuous-actions', action='store_true', default=False)
+    parser.add_argument('-w', '--wheel-speed', action='store_true', default=False)
+    parser.add_argument('-vl', '--velocity', action='store_true', default=False)
+    parser.add_argument('-p', '--position', action='store_true', default=False)
+    parser.add_argument('-joints', '--action-joints', action='store_true', default=False,
+                        help='set actions to the joints of the arm directly, instead of inverse kinematics')
     parser.add_argument('--seed', type=int, default=0, help='the seed')
     parser.add_argument('-f', '--force', action='store_true', default=False,
                         help='Force the save, even if it overrides something else,' +
@@ -160,6 +166,16 @@ def main():
     if args.num_cpu > args.num_episode:
         args.num_cpu = args.num_episode
         printYellow("num_cpu cannot be greater than num_episode, defaulting to {} cpus.".format(args.num_cpu))
+
+    assert args.continuous_actions and (args.velocity or args.wheel_speed or args.position), \
+        "If using continuous action' joints space, specify if commanding by velocity or wheel angular speed !"
+
+    assert not (args.velocity and args.wheel_speed ), \
+        "Specify if commanding position, by velocity, or Wheel angular speed !"
+    assert not(args.wheel_speed and args.position), \
+        "Specify if commanding position, by velocity, or Wheel angular speed !"
+    assert not (args.velocity and args.position), \
+        "Specify if commanding position, by velocity, or Wheel angular speed !"
 
     # this is done so seed 0 and 1 are different and not simply offset of the same datasets.
     args.seed = np.random.RandomState(args.seed).randint(int(1e10))

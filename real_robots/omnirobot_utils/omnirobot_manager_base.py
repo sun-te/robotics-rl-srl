@@ -1,6 +1,7 @@
 from __future__ import division, print_function, absolute_import
 
 from real_robots.constants import *
+from real_robots.omnirobot_utils.utils import wheelSpeed2pos, velocity2pos
 
 
 class OmnirobotManagerBase(object):
@@ -80,6 +81,37 @@ class OmnirobotManagerBase(object):
             has_bumped = True
         return has_bumped
 
+    def moveByVelocityCmd(self, msg):
+        """
+        TODO: constraints ?
+        :param msg: (float, float, float) as action to perform(speed_x, speed_y, speed_yaw)
+        :return: (bool) Whether or not did the robot bump into the wall
+        """
+        speed_x, speed_y, speed_yaw = msg['action']
+        ground_pos_cmd_x, ground_pos_cmd_y, _ = velocity2pos(self.robot, speed_x, speed_y, speed_yaw)
+
+        if MIN_X < ground_pos_cmd_x < MAX_X and MIN_Y < ground_pos_cmd_y < MAX_Y:
+            self.robot.moveByVelocityCmd(speed_x, speed_y, speed_yaw)
+            has_bumped = False
+        else:
+            has_bumped = True
+        return has_bumped
+
+    def moveByWheelsCmd(self, msg):
+        """
+        :param msg: (float, float, float) as action to perform(left_speed, front_speed, right_speed)
+        :return: (bool) Whether or not did the robot bump into the wall
+        """
+        left_speed, front_speed, right_speed = msg['action']
+        ground_pos_cmd_x, ground_pos_cmd_y, _ = wheelSpeed2pos(self.robot, left_speed, front_speed, right_speed)
+
+        if MIN_X < ground_pos_cmd_x < MAX_X and MIN_Y < ground_pos_cmd_y < MAX_Y:
+            self.robot.moveByWheelsCmd(left_speed, front_speed, right_speed)
+            has_bumped = False
+        else:
+            has_bumped = True
+        return has_bumped
+
     def sampleRobotInitalPosition(self):
         random_init_x = np.random.random_sample() * (INIT_MAX_X - INIT_MIN_X) + INIT_MIN_X
         random_init_y = np.random.random_sample() * (INIT_MAX_Y - INIT_MIN_Y) + INIT_MIN_Y
@@ -134,7 +166,15 @@ class OmnirobotManagerBase(object):
         elif action == Move.BACKWARD:
             has_bumped = self.backwardAction()
         elif action == 'Continuous':
-            has_bumped = self.moveContinousAction(msg)
+            if msg['use_position']:
+                has_bumped = self.moveContinousAction(msg)
+            elif msg['use_velocity']:
+                has_bumped = self.moveByVelocityCmd(msg)
+            elif msg['use_wheel_speed']:
+                has_bumped = self.moveByWheelsCmd(msg)
+            else:
+                pass
+
         elif action == None:
             pass
         else:
