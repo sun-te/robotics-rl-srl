@@ -8,10 +8,18 @@ from real_robots.constants import *
 
 
 def velocity2pos(robot, speed_x, speed_y, speed_yaw):
-    # calculate the robot position that it should be at this moment, so it should be driven by last command
-    # Assume in 1/RL_CONTROL_FREQ, the heading remains the same (not true,
-    #   but should be approximately work if RL_CONTROL_FREQ is high enough)
-    # translate the last velocity cmd in robot local coordiante to position cmd in gound coordiante
+    """
+    Calculate the robot position
+    Assume in 1/RL_CONTROL_FREQ, the heading remains the same (not true,
+    but should be approximately work if RL_CONTROL_FREQ is high enough)
+    translate the last velocity cmd in robot local coordiante to position cmd in gound coordiante
+
+    :param robot: agent that is performing the continuous actions
+    :param speed_x: (float)
+    :param speed_y: (float)
+    :param speed_yaw: (float)
+    :return: (float, float, float) final position (x, y, yam) of the robot as after performing the action
+    """
     cos_direction = np.cos(robot.robot_yaw)
     sin_direction = np.sin(robot.robot_yaw)
 
@@ -22,9 +30,17 @@ def velocity2pos(robot, speed_x, speed_y, speed_yaw):
 
 
 def wheelSpeed2pos(robot, left_speed, front_speed, right_speed):
-    # calculate the robot position by omnirobot's kinematic equations
-    # Assume in 1/RL_CONTROL_FREQ, the heading remains the same (not true,
-    # but should be approximately work if RL_CONTROL_FREQ is high enough)
+    """
+    Calculate the robot position by omnirobot's kinematic equations
+    Assume in 1/RL_CONTROL_FREQ, the heading remains the same (not true,
+    but should be approximately work if RL_CONTROL_FREQ is high enough)
+
+    :param robot: agent that is performing the continuous actions
+    :param left_speed: (float)
+    :param front_speed: (float)
+    :param right_speed: (float)
+    :return: (float, float, float) final position (x, y, yam) of the robot as after performing the action
+    """
 
     # translate the last wheel speeds cmd in last velocity cmd
     local_speed_x = left_speed / np.sqrt(3.0) - right_speed / np.sqrt(3.0)
@@ -42,6 +58,7 @@ def wheelSpeed2pos(robot, left_speed, front_speed, right_speed):
                                             cos_direction + local_speed_x * sin_direction) / RL_CONTROL_FREQ
     ground_yaw_cmd = robot.robot_yaw + local_rot_speed / RL_CONTROL_FREQ
     return ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd
+
 
 class PosTransformer(object):
     def __init__(self, camera_mat: np.ndarray, dist_coeffs: np.ndarray,
@@ -137,7 +154,6 @@ class BiggerBox(spaces.Box):
         return np.array([self.np_random.uniform(low=-x, high=x) for x in self.limits]).astype(self.dtype)
 
     def contains(self, action):
-        #print("what I have: ", action, action.shape, self.shape)
         return action.shape == self.shape and \
                all([np.logical_and(action[i] >= -self.limits[i],
                                    action[i] <= self.limits[i]) for i in range(len(action))])

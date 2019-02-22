@@ -61,40 +61,27 @@ class OmniRobotEnv(SRLGymEnv):
     The goal of Omnirobot is to go to the location on the table
     (signaled with a circle sticker on the table)
     :param renders: (bool) Whether to display the GUI or not
-    :param is_discrete: (bool) true if action space is discrete vs continuous
-    :param save_path: (str) name of the folder where recorded data will be stored
-    :param state_dim: (int) When learning states
-    :param learn_states: (bool)
-    :param record_data: (bool) Set to true, record frames with the rewards.
-    :param shape_reward: (bool) Set to true, reward = -distance_to_goal
-    :param env_rank: (int) the number ID of the environment
-    :param srl_pipe: (Queue, [Queue]) contains the input and output of the SRL model
+        :param name: (str) name of the folder where recorded data will be stored
+        :param is_discrete: (bool) Whether to use discrete or continuous actions
+        :param save_path: (str) location where the saved data should go
+        :param state_dim: (int) When learning states
+        :param learn_states: (bool)
+        :param srl_model: (str) SRL model
+        :param record_data: (bool) Set to true, record frames with the rewards.
+        :param random_target: (bool) Set the target to a random position
+        :param action_repeat: (bool)
+        :param shape_reward: (bool) Set to true, reward = -distance_to_goal
+        :param env_rank: (int) the number ID of the environment
+        :param srl_pipe: (Queue, [Queue]) contains the input and output of the SRL model
+        :param use_position: (bool) Whether to use delta of positions as continuous actions
+        :param use_velocity: (bool) Whether to use velocity (3) as continuous actions
+        :param use_wheel_speed:  (bool) Whether to use angular wheel speed (3)  as continuous actions
     """
 
     def __init__(self, renders=False, name="Omnirobot", is_discrete=True, save_path='srl_zoo/data/', state_dim=-1,
                  learn_states=False, srl_model="raw_pixels", record_data=False, action_repeat=1, random_target=True,
                  shape_reward=False, env_rank=0, srl_pipe=None, use_position=False, use_velocity=False,
                  use_wheel_speed=False, **_):
-        """
-        TODO complete doc
-        :param renders:
-        :param name:
-        :param is_discrete:
-        :param save_path:
-        :param state_dim:
-        :param learn_states:
-        :param srl_model:
-        :param record_data:
-        :param action_repeat:
-        :param random_target:
-        :param shape_reward:
-        :param env_rank:
-        :param srl_pipe:
-        :param use_position:
-        :param use_velocity:
-        :param use_wheel_speed:
-        :param _:
-        """
 
         super(OmniRobotEnv, self).__init__(srl_model=srl_model,
                                            relative_pos=RELATIVE_POS,
@@ -138,11 +125,13 @@ class OmniRobotEnv(SRLGymEnv):
             elif self.use_velocity:
                 # TODO: define constants for velocity limit
                 action_dim = (3,)
-                self.action_space = BiggerBox(limits=np.array([0.7, 0.7, 0.7]), shape=action_dim, dtype=np.float32)
+                self.action_space = BiggerBox(limits=np.array([OMNIBOT_SPEED_LIMIT, OMNIBOT_SPEED_LIMIT,
+                                                               OMNIBOT_SPEED_LIMIT]), shape=action_dim, dtype=np.float32)
             elif self.use_wheel_speed:
                 # TODO: define constants for angular wheel speed limit
                 action_dim = (3,)
-                self.action_space = BiggerBox(limits=np.array([np.pi/3, np.pi/3, np.pi/3]), shape=action_dim, dtype=np.float32)
+                self.action_space = BiggerBox(limits=np.array([OMNIBOT_SPEED_LIMIT, OMNIBOT_SPEED_LIMIT,
+                                                               OMNIBOT_SPEED_LIMIT]), shape=action_dim, dtype=np.float32)
             else:
                 pass
 

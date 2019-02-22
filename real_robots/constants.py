@@ -107,6 +107,9 @@ elif USING_OMNIROBOT or USING_OMNIROBOT_SIMULATOR:
     #error threshold
     DIST_TO_TARGET_THRESHOLD = 0.2
 
+    # Velocity/ wheel speed
+    OMNIBOT_SPEED_LIMIT = 0.192
+
     # For discrete action, 
     # Define the possible Moves
     class Move(IntEnum):
