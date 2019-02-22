@@ -123,12 +123,10 @@ class OmniRobotEnv(SRLGymEnv):
                 self.action_space = BiggerBox(limits=np.array([ACTION_POSITIVE_HIGH, ACTION_POSITIVE_HIGH]),
                                               shape=action_dim, dtype=np.float32)
             elif self.use_velocity:
-                # TODO: define constants for velocity limit
                 action_dim = (3,)
                 self.action_space = BiggerBox(limits=np.array([OMNIBOT_SPEED_LIMIT, OMNIBOT_SPEED_LIMIT,
                                                                OMNIBOT_SPEED_LIMIT]), shape=action_dim, dtype=np.float32)
             elif self.use_wheel_speed:
-                # TODO: define constants for angular wheel speed limit
                 action_dim = (3,)
                 self.action_space = BiggerBox(limits=np.array([OMNIBOT_SPEED_LIMIT, OMNIBOT_SPEED_LIMIT,
                                                                OMNIBOT_SPEED_LIMIT]), shape=action_dim, dtype=np.float32)

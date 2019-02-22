@@ -3,6 +3,7 @@ from __future__ import division, print_function, absolute_import
 from real_robots.constants import *
 from real_robots.omnirobot_utils.utils import wheelSpeed2pos, velocity2pos
 
+
 class OmnirobotManagerBase(object):
     def __init__(self, second_cam_topic=None):
         """
@@ -83,8 +84,8 @@ class OmnirobotManagerBase(object):
     def moveByVelocityCmd(self, msg):
         """
         TODO: constraints ?
-        :param msg:
-        :return:
+        :param msg: (float, float, float) as action to perform(speed_x, speed_y, speed_yaw)
+        :return: (bool) Whether or not did the robot bump into the wall
         """
         speed_x, speed_y, speed_yaw = msg['action']
         ground_pos_cmd_x, ground_pos_cmd_y, _ = velocity2pos(self.robot, speed_x, speed_y, speed_yaw)
@@ -98,12 +99,11 @@ class OmnirobotManagerBase(object):
 
     def moveByWheelsCmd(self, msg):
         """
-        TODO: constraints ?
-        :param msg:
-        :return:
+        :param msg: (float, float, float) as action to perform(left_speed, front_speed, right_speed)
+        :return: (bool) Whether or not did the robot bump into the wall
         """
         left_speed, front_speed, right_speed = msg['action']
-        ground_pos_cmd_x, ground_pos_cmd_y, _ = velocity2pos(self.robot, left_speed, front_speed, right_speed)
+        ground_pos_cmd_x, ground_pos_cmd_y, _ = wheelSpeed2pos(self.robot, left_speed, front_speed, right_speed)
 
         if MIN_X < ground_pos_cmd_x < MAX_X and MIN_Y < ground_pos_cmd_y < MAX_Y:
             self.robot.moveByWheelsCmd(left_speed, front_speed, right_speed)
