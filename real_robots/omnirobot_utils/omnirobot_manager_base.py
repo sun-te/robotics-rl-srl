@@ -93,16 +93,23 @@ class OmnirobotManagerBase(object):
         print("acc_yaw", acc_yaw)
         speed_x = self.robot.curr_robot_velocity[0] + acc_x / RL_CONTROL_FREQ
         speed_y = self.robot.curr_robot_velocity[1] + acc_y / RL_CONTROL_FREQ
-        speed_yaw = self.robot.curr_robot_velocity[2] + acc_yaw / RL_CONTROL_FREQ
-        print("speed_yaw",speed_yaw)
-        ground_pos_cmd_x, ground_pos_cmd_y, _ = velocity2pos(self.robot, speed_x, speed_y, speed_yaw)
-        print("ground_pos_cmd_x",ground_pos_cmd_x)
-        print('ground_pos_cmd_y',ground_pos_cmd_y)
+        speed_yaw = self.robot.curr_robot_velocity[2] + \
+            acc_yaw / RL_CONTROL_FREQ
+        print("speed_x", speed_x)
+        print("speed_y", speed_y)
+        ground_pos_cmd_x, ground_pos_cmd_y, _ = velocity2pos(
+            self.robot, speed_x, speed_y, speed_yaw)
+        print("ground_pos_cmd_x", ground_pos_cmd_x)
+        print("ground_pos_cmd_y", ground_pos_cmd_y)
+        print('robot_pos', self.robot.robot_pos)
         if MIN_X < ground_pos_cmd_x < MAX_X and MIN_Y < ground_pos_cmd_y < MAX_Y:
             self.robot.moveByVelocityCmd(speed_x, speed_y, speed_yaw)
             has_bumped = False
         else:
             has_bumped = True
+            self.robot.curr_robot_velocity[0] = 0.0
+            self.robot.curr_robot_velocity[1] = 0.0
+            self.robot.curr_robot_velocity[2] = 0.0
         return has_bumped
 
     def moveByWheelsAccCmd(self, msg):
@@ -112,24 +119,31 @@ class OmnirobotManagerBase(object):
         :return: (bool) Whether or not did the robot bump into the wall
         """
         acc_left, acc_front, acc_right = msg['action']
-        left_speed = self.robot.curr_wheel_speeds[0] + acc_left / RL_CONTROL_FREQ
-        front_speed = self.robot.curr_wheel_speeds[1] + acc_front / RL_CONTROL_FREQ
-        right_speed = self.robot.curr_wheel_speeds[2] + acc_right / RL_CONTROL_FREQ
+        left_speed = self.robot.curr_wheel_speeds[0] + \
+            acc_left / RL_CONTROL_FREQ
+        front_speed = self.robot.curr_wheel_speeds[1] + \
+            acc_front / RL_CONTROL_FREQ
+        right_speed = self.robot.curr_wheel_speeds[2] + \
+            acc_right / RL_CONTROL_FREQ
         print(acc_left, acc_front, acc_right)
-        ground_pos_cmd_x, ground_pos_cmd_y, _ = wheelSpeed2pos(self.robot, left_speed, front_speed, right_speed)
+        ground_pos_cmd_x, ground_pos_cmd_y, _ = wheelSpeed2pos(
+            self.robot, left_speed, front_speed, right_speed)
 
         if MIN_X < ground_pos_cmd_x < MAX_X and MIN_Y < ground_pos_cmd_y < MAX_Y:
             self.robot.moveByWheelsCmd(left_speed, front_speed, right_speed)
             has_bumped = False
         else:
             has_bumped = True
+            self.robot.curr_wheel_speeds[0] = 0
+            self.robot.curr_wheel_speeds[1] = 0
+            self.robot.curr_wheel_speeds[2] = 0
         return has_bumped
 
     def sampleRobotInitalPosition(self):
         random_init_x = np.random.random_sample() * (INIT_MAX_X - INIT_MIN_X) + INIT_MIN_X
         random_init_y = np.random.random_sample() * (INIT_MAX_Y - INIT_MIN_Y) + INIT_MIN_Y
         return [random_init_x, random_init_y]
-    
+
     def resetEpisode(self):
         """
         Give the correct sequance of commands to the robot 
@@ -139,7 +153,8 @@ class OmnirobotManagerBase(object):
             assert NotImplementedError
         # Env reset
         random_init_position = self.sampleRobotInitalPosition()
-        self.robot.setRobotCmd(random_init_position[0], random_init_position[1], 0)
+        self.robot.setRobotCmd(
+            random_init_position[0], random_init_position[1], 0)
 
     def processMsg(self, msg):
         """
@@ -194,7 +209,7 @@ class OmnirobotManagerBase(object):
             print("Unsupported action: ", action)
 
         # Determinate the reward for this step
-        
+
         # Consider that we reached the target if we are close enough
         # we detect that computing the difference in area between TARGET_INITIAL_AREA
         # current detected area of the target
