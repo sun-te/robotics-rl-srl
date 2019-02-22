@@ -16,7 +16,8 @@ from environments import ThreadingType
 from environments.registry import registered_env
 from srl_zoo.utils import printRed, printYellow
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # used to remove debug info of tensorflow
+# used to remove debug info of tensorflow
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 def convertImagePath(args, path, record_id_start):
@@ -48,8 +49,8 @@ def env_thread(args, thread_num, partition=True, use_ppo2=False):
         "force_down": True,
         "is_discrete": not args.continuous_actions,
         "use_position": args.position,
-        "use_velocity": args.velocity,
-        "use_wheel_speed": args.wheel_speed,
+        "use_linear_acceleration": args.linear_acceleration,
+        "use_wheel_speed": args.wheel_acceleration,
         "renders": thread_num == 0 and args.display,
         "record_data": not args.no_record_data,
         "multi_view": args.multi_view,
@@ -65,12 +66,12 @@ def env_thread(args, thread_num, partition=True, use_ppo2=False):
     env_class = registered_env[args.env][0]
     env = env_class(**env_kwargs)
 
-
     model = None
     if use_ppo2:
         # Additional env when using a trained ppo agent to generate data
         # instead of a random agent
-        train_env = env_class(**{**env_kwargs, "record_data": False, "renders": False})
+        train_env = env_class(
+            **{**env_kwargs, "record_data": False, "renders": False})
         train_env = DummyVecEnv([lambda: train_env])
         train_env = VecNormalize(train_env, norm_obs=True, norm_reward=False)
 
@@ -82,10 +83,12 @@ def env_thread(args, thread_num, partition=True, use_ppo2=False):
     for i_episode in range(args.num_episode // args.num_cpu + 1 * (args.num_episode % args.num_cpu > thread_num)):
         # seed + position in this slice + size of slice (with reminder if uneven partitions)
         seed = args.seed + i_episode + args.num_episode // args.num_cpu * thread_num + \
-               (thread_num if thread_num <= args.num_episode % args.num_cpu else args.num_episode % args.num_cpu)
+            (thread_num if thread_num <= args.num_episode %
+             args.num_cpu else args.num_episode % args.num_cpu)
 
         env.seed(seed)
-        env.action_space.seed(seed) # this is for the sample() function from gym.space
+        # this is for the sample() function from gym.space
+        env.action_space.seed(seed)
         obs = env.reset()
         done = False
         t = 0
@@ -100,40 +103,47 @@ def env_thread(args, thread_num, partition=True, use_ppo2=False):
                     action = [env.actionPolicyTowardTarget()]
                 else:
                     action = [env.action_space.sample()]
-
+                    print("action",action)
             action_to_step = action[0]
             _, _, done, _ = env.step(action_to_step)
 
             frames += 1
             t += 1
             if done:
-                if np.random.rand() <  args.toward_target_timesteps_proportion:
+                if np.random.rand() < args.toward_target_timesteps_proportion:
                     episode_toward_target_on = True
                 else:
                     episode_toward_target_on = False
                 print("Episode finished after {} timesteps".format(t + 1))
 
         if thread_num == 0:
-            print("{:.2f} FPS".format(frames * args.num_cpu / (time.time() - start_time)))
+            print("{:.2f} FPS".format(
+                frames * args.num_cpu / (time.time() - start_time)))
 
 
 def main():
     parser = argparse.ArgumentParser(description='Deteministic dataset generator for SRL training ' +
                                                  '(can be used for environment testing)')
-    parser.add_argument('--num-cpu', type=int, default=1, help='number of cpu to run on')
-    parser.add_argument('--num-episode', type=int, default=50, help='number of episode to run')
+    parser.add_argument('--num-cpu', type=int, default=1,
+                        help='number of cpu to run on')
+    parser.add_argument('--num-episode', type=int,
+                        default=50, help='number of episode to run')
     parser.add_argument('--save-path', type=str, default='srl_zoo/data/',
                         help='Folder where the environments will save the output')
-    parser.add_argument('--name', type=str, default='kuka_button', help='Folder name for the output')
+    parser.add_argument('--name', type=str, default='kuka_button',
+                        help='Folder name for the output')
     parser.add_argument('--env', type=str, default='KukaButtonGymEnv-v0', help='The environment wanted',
                         choices=list(registered_env.keys()))
     parser.add_argument('--display', action='store_true', default=False)
     parser.add_argument('--no-record-data', action='store_true', default=False)
     parser.add_argument('--max-distance', type=float, default=0.28,
                         help='Beyond this distance from the goal, the agent gets a negative reward')
-    parser.add_argument('-c', '--continuous-actions', action='store_true', default=False)
-    parser.add_argument('-w', '--wheel-speed', action='store_true', default=False)
-    parser.add_argument('-vl', '--velocity', action='store_true', default=False)
+    parser.add_argument('-c', '--continuous-actions',
+                        action='store_true', default=False)
+    parser.add_argument('-wacc', '--wheel-acceleration', action='store_true', default=False,
+                        help="action commands are wheel speed's acceleration")
+    parser.add_argument('-lacc', '--linear-acceleration', action='store_true', default=False,
+                        help='action commands are linear acceleration (acceleration on x, y, rot around z)')
     parser.add_argument('-p', '--position', action='store_true', default=False)
     parser.add_argument('-joints', '--action-joints', action='store_true', default=False,
                         help='set actions to the joints of the arm directly, instead of inverse kinematics')
@@ -143,7 +153,8 @@ def main():
                              ' including partial parts if they exist')
     parser.add_argument('-r', '--random-target', action='store_true', default=False,
                         help='Set the button to a random position')
-    parser.add_argument('--multi-view', action='store_true', default=False, help='Set a second camera to the scene')
+    parser.add_argument('--multi-view', action='store_true',
+                        default=False, help='Set a second camera to the scene')
     parser.add_argument('--shape-reward', action='store_true', default=False,
                         help='Shape the reward (reward = - distance) instead of a sparse reward')
     parser.add_argument('--reward-dist', action='store_true', default=False,
@@ -157,32 +168,38 @@ def main():
     args = parser.parse_args()
 
     assert (args.num_cpu > 0), "Error: number of cpu must be positive and non zero"
-    assert (args.max_distance > 0), "Error: max distance must be positive and non zero"
-    assert (args.num_episode > 0), "Error: number of episodes must be positive and non zero"
+    assert (args.max_distance >
+            0), "Error: max distance must be positive and non zero"
+    assert (args.num_episode >
+            0), "Error: number of episodes must be positive and non zero"
     assert not args.reward_dist or not args.shape_reward, \
         "Error: cannot display the reward distribution for continuous reward"
     assert not(registered_env[args.env][3] is ThreadingType.NONE and args.num_cpu != 1), \
-        "Error: cannot have more than 1 CPU for the environment {}".format(args.env)
+        "Error: cannot have more than 1 CPU for the environment {}".format(
+            args.env)
     if args.num_cpu > args.num_episode:
         args.num_cpu = args.num_episode
-        printYellow("num_cpu cannot be greater than num_episode, defaulting to {} cpus.".format(args.num_cpu))
+        printYellow(
+            "num_cpu cannot be greater than num_episode, defaulting to {} cpus.".format(args.num_cpu))
 
-    assert args.continuous_actions and (args.velocity or args.wheel_speed or args.position), \
-        "If using continuous action' joints space, specify if commanding by velocity or wheel angular speed !"
+    if args.continuous_actions:
+        assert args.continuous_actions and (args.linear_acceleration or args.wheel_acceleration or args.position), \
+            "If using continuous action' joints space, specify if commanding by acceleration of velocity or acceleration of wheel linear speed !"
 
-    assert not (args.velocity and args.wheel_speed ), \
-        "Specify if commanding position, by velocity, or Wheel angular speed !"
-    assert not(args.wheel_speed and args.position), \
-        "Specify if commanding position, by velocity, or Wheel angular speed !"
-    assert not (args.velocity and args.position), \
-        "Specify if commanding position, by velocity, or Wheel angular speed !"
+    assert not (args.linear_acceleration and args.wheel_acceleration), \
+        "Specify if commanding position, by acceleration of velocity, or acceleration of wheel linear speed !"
+    assert not(args.wheel_acceleration and args.position), \
+        "Specify if commanding position, by acceleration of velocity, or acceleration of wheel linear speed !"
+    assert not (args.linear_acceleration and args.position), \
+        "Specify if commanding position, by acceleration of velocity, or acceleration of wheel linear speed !"
 
     # this is done so seed 0 and 1 are different and not simply offset of the same datasets.
     args.seed = np.random.RandomState(args.seed).randint(int(1e10))
 
     # File exists, need to deal with it
     if not args.no_record_data and os.path.exists(args.save_path + args.name):
-        assert args.force, "Error: save directory '{}' already exists".format(args.save_path + args.name)
+        assert args.force, "Error: save directory '{}' already exists".format(
+            args.save_path + args.name)
 
         shutil.rmtree(args.save_path + args.name)
         for part in glob.glob(args.save_path + args.name + "_part-[0-9]*"):
@@ -198,7 +215,8 @@ def main():
         try:
             jobs = []
             for i in range(args.num_cpu):
-                process = multiprocessing.Process(target=env_thread, args=(args, i, True, args.run_ppo2))
+                process = multiprocessing.Process(
+                    target=env_thread, args=(args, i, True, args.run_ppo2))
                 jobs.append(process)
 
             for j in jobs:
@@ -219,11 +237,14 @@ def main():
         # sleep 1 second, to avoid congruency issues from multiprocess (eg., files still writing)
         time.sleep(1)
         # get all the parts
-        file_parts = sorted(glob.glob(args.save_path + args.name + "_part-[0-9]*"), key=lambda a: int(a.split("-")[-1]))
+        file_parts = sorted(glob.glob(
+            args.save_path + args.name + "_part-[0-9]*"), key=lambda a: int(a.split("-")[-1]))
 
         # move the config files from any as they are identical
-        os.rename(file_parts[0] + "/dataset_config.json", args.save_path + args.name + "/dataset_config.json")
-        os.rename(file_parts[0] + "/env_globals.json", args.save_path + args.name + "/env_globals.json")
+        os.rename(file_parts[0] + "/dataset_config.json",
+                  args.save_path + args.name + "/dataset_config.json")
+        os.rename(file_parts[0] + "/env_globals.json",
+                  args.save_path + args.name + "/env_globals.json")
 
         ground_truth = None
         preprocessed_data = None
@@ -232,11 +253,13 @@ def main():
         record_id = 0
         for part in file_parts:
             # sort the record names alphabetically, then numerically
-            records = sorted(glob.glob(part + "/record_[0-9]*"), key=lambda a: int(a.split("_")[-1]))
+            records = sorted(
+                glob.glob(part + "/record_[0-9]*"), key=lambda a: int(a.split("_")[-1]))
 
             record_id_start = record_id
             for record in records:
-                os.renames(record, args.save_path + args.name + "/record_{:03d}".format(record_id))
+                os.renames(record, args.save_path + args.name +
+                           "/record_{:03d}".format(record_id))
                 record_id += 1
 
             # fuse the npz files together, in the right order
@@ -245,7 +268,8 @@ def main():
                 ground_truth = {}
                 preprocessed_data = {}
                 ground_truth_load = np.load(part + "/ground_truth.npz")
-                preprocessed_data_load = np.load(part + "/preprocessed_data.npz")
+                preprocessed_data_load = np.load(
+                    part + "/preprocessed_data.npz")
 
                 for arr in ground_truth_load.files:
                     if arr == "images_path":
@@ -258,31 +282,39 @@ def main():
 
             else:
                 ground_truth_load = np.load(part + "/ground_truth.npz")
-                preprocessed_data_load = np.load(part + "/preprocessed_data.npz")
+                preprocessed_data_load = np.load(
+                    part + "/preprocessed_data.npz")
 
                 for arr in ground_truth_load.files:
                     if arr == "images_path":
                         sanitised_paths = np.array(
                             [convertImagePath(args, path, record_id_start) for path in ground_truth_load[arr]])
-                        ground_truth[arr] = np.concatenate((ground_truth[arr], sanitised_paths))
+                        ground_truth[arr] = np.concatenate(
+                            (ground_truth[arr], sanitised_paths))
                     else:
-                        ground_truth[arr] = np.concatenate((ground_truth[arr], ground_truth_load[arr]))
+                        ground_truth[arr] = np.concatenate(
+                            (ground_truth[arr], ground_truth_load[arr]))
                 for arr in preprocessed_data_load.files:
-                    preprocessed_data[arr] = np.concatenate((preprocessed_data[arr], preprocessed_data_load[arr]))
+                    preprocessed_data[arr] = np.concatenate(
+                        (preprocessed_data[arr], preprocessed_data_load[arr]))
 
             # remove the current part folder
             shutil.rmtree(part)
 
         # save the fused outputs
-        np.savez(args.save_path + args.name + "/ground_truth.npz", **ground_truth)
-        np.savez(args.save_path + args.name + "/preprocessed_data.npz", **preprocessed_data)
+        np.savez(args.save_path + args.name +
+                 "/ground_truth.npz", **ground_truth)
+        np.savez(args.save_path + args.name +
+                 "/preprocessed_data.npz", **preprocessed_data)
 
     if args.reward_dist:
         rewards, counts = np.unique(np.load(args.save_path + args.name + "/preprocessed_data.npz")['rewards'],
                                     return_counts=True)
-        counts = ["{:.2f}%".format(val * 100) for val in counts / np.sum(counts)]
+        counts = ["{:.2f}%".format(val * 100)
+                  for val in counts / np.sum(counts)]
         print("reward distribution:")
-        [print(" ", reward, count) for reward, count in list(zip(rewards, counts))]
+        [print(" ", reward, count)
+         for reward, count in list(zip(rewards, counts))]
 
 
 if __name__ == '__main__':

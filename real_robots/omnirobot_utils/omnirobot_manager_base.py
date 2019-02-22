@@ -81,15 +81,23 @@ class OmnirobotManagerBase(object):
             has_bumped = True
         return has_bumped
 
-    def moveByVelocityCmd(self, msg):
+    def moveByLinearAccCmd(self, msg):
         """
         TODO: constraints ?
-        :param msg: (float, float, float) as action to perform(speed_x, speed_y, speed_yaw)
+        :param msg: (float, float, float) as action to perform (acc_x, acc_y, acc_yaw) (m/s^2,m/s^2,rad/s^2)
+                    which is the acceleration of robot's velocity, presented in the robot's local frame
         :return: (bool) Whether or not did the robot bump into the wall
         """
-        speed_x, speed_y, speed_yaw = msg['action']
+        acc_x, acc_y = msg['action'][0], msg['action'][1]
+        acc_yaw = msg['action'][2] if len(msg['action']) >= 3 else 0
+        print("acc_yaw", acc_yaw)
+        speed_x = self.robot.curr_robot_velocity[0] + acc_x / RL_CONTROL_FREQ
+        speed_y = self.robot.curr_robot_velocity[1] + acc_y / RL_CONTROL_FREQ
+        speed_yaw = self.robot.curr_robot_velocity[2] + acc_yaw / RL_CONTROL_FREQ
+        print("speed_yaw",speed_yaw)
         ground_pos_cmd_x, ground_pos_cmd_y, _ = velocity2pos(self.robot, speed_x, speed_y, speed_yaw)
-
+        print("ground_pos_cmd_x",ground_pos_cmd_x)
+        print('ground_pos_cmd_y',ground_pos_cmd_y)
         if MIN_X < ground_pos_cmd_x < MAX_X and MIN_Y < ground_pos_cmd_y < MAX_Y:
             self.robot.moveByVelocityCmd(speed_x, speed_y, speed_yaw)
             has_bumped = False
@@ -97,12 +105,17 @@ class OmnirobotManagerBase(object):
             has_bumped = True
         return has_bumped
 
-    def moveByWheelsCmd(self, msg):
+    def moveByWheelsAccCmd(self, msg):
         """
-        :param msg: (float, float, float) as action to perform(left_speed, front_speed, right_speed)
+        :param msg: (float, float, float) as action to perform(acc_speed, acc_speed, acc_speed),
+                    which is the acceleration of wheels' linear speed.  (m/s^2,m/s^2,m/s^2)
         :return: (bool) Whether or not did the robot bump into the wall
         """
-        left_speed, front_speed, right_speed = msg['action']
+        acc_left, acc_front, acc_right = msg['action']
+        left_speed = self.robot.curr_wheel_speeds[0] + acc_left / RL_CONTROL_FREQ
+        front_speed = self.robot.curr_wheel_speeds[1] + acc_front / RL_CONTROL_FREQ
+        right_speed = self.robot.curr_wheel_speeds[2] + acc_right / RL_CONTROL_FREQ
+        print(acc_left, acc_front, acc_right)
         ground_pos_cmd_x, ground_pos_cmd_y, _ = wheelSpeed2pos(self.robot, left_speed, front_speed, right_speed)
 
         if MIN_X < ground_pos_cmd_x < MAX_X and MIN_Y < ground_pos_cmd_y < MAX_Y:
@@ -168,10 +181,10 @@ class OmnirobotManagerBase(object):
         elif action == 'Continuous':
             if msg['use_position']:
                 has_bumped = self.moveContinousAction(msg)
-            elif msg['use_velocity']:
-                has_bumped = self.moveByVelocityCmd(msg)
-            elif msg['use_wheel_speed']:
-                has_bumped = self.moveByWheelsCmd(msg)
+            elif msg['use_linear_acceleration']:
+                has_bumped = self.moveByLinearAccCmd(msg)
+            elif msg['use_wheel_acceleration']:
+                has_bumped = self.moveByWheelsAccCmd(msg)
             else:
                 pass
 

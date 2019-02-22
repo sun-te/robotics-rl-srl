@@ -14,13 +14,15 @@ from real_robots.omnirobot_utils.utils import PosTransformer, wheelSpeed2pos, ve
 
 assert USING_OMNIROBOT_SIMULATOR, "Please set USING_OMNIROBOT_SIMULATOR to True in real_robots/constants.py"
 NOISE_VAR_ROBOT_POS = 0.01  # meter
-NOISE_VAR_ROBOT_YAW = np.pi/180 * 2.5  # 5 Deg
+NOISE_VAR_ROBOT_YAW = 0#np.pi/180 * 2.5  # 5 Deg
 NOISE_VAR_TARGET_PIXEL = 2  # pixel noise on target marker
 NOISE_VAR_ROBOT_PIXEL = 2
 NOISE_VAR_ENVIRONMENT = 0.03  # pixel noise of final image on LAB space
 NOISE_VAR_ROBOT_SIZE_PROPOTION = 0.05  # noise of robot size propotion
 NOISE_VAR_TARGET_SIZE_PROPOTION = 0.05
-
+NOISE_VAR_LINEAR_VELOCITY_TRANSLATION = 0.00 # m/s^2
+NOISE_VAR_LINEAR_VELOCITY_ROTATION = 0.00 # rad/s^2
+NOISE_VAR_WHEEL_SPEEDS =  0.00 # m/s^2
 
 class OmniRobotEnvRender(object):
     def __init__(self, init_x, init_y, init_yaw, origin_size, cropped_size,
@@ -63,15 +65,6 @@ class OmniRobotEnvRender(object):
         self.robot_pos = np.float32([0, 0])
         self.robot_yaw = 0  # in rad
 
-        # Last velocity command, used for simulating the controlling of velocity directly
-        self.last_linear_velocity_cmd = np.float32(
-            [0, 0])  # in m/s, in robot local frame
-        self.last_rot_velocity_cmd = 0  # in rad/s
-
-        # last wheel speeds command, used for simulating the controlling of wheel speed directly
-        # [left_speed, front_speed, right_speed]
-        self.last_wheel_speeds_cmd = np.float32([0, 0, 0])
-
         # OmniRobot's position command on the grid
         self.robot_pos_cmd = np.float32(self.init_pos[:])
         self.robot_yaw_cmd = self.init_yaw
@@ -83,6 +76,13 @@ class OmniRobotEnvRender(object):
         # Target's real position on the grid
         self.target_pos = np.float32([0, 0])
         self.target_yaw = 0
+
+        # current velocity of robot and target
+        self.curr_robot_velocity = np.float32([0.0,0.0,0.0]) #vx (m/s), vy (m/s), v_rotation(rad/s)
+
+        # current wheel speeds, this is different with last_wheel_speeds_cmd, it is the real states of the robot, not the command.
+        self.curr_wheel_speeds = np.float32([0.0,0.0,0.0]) # left, front, right (m/s)
+        
 
         # status of moving
         self.move_finished = False
@@ -285,15 +285,19 @@ class OmniRobotEnvRender(object):
         :param speed_y: (float) linear speed along y-axis (m/s) (left-right), in robot local coordinate
         :param speed_yaw: (float) rotation speed of robot around z-axis (rad/s), in robot local coordinate
         """
-        ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd = velocity2pos(self, self.last_linear_velocity_cmd[0],
-                                                                          self.last_linear_velocity_cmd[1],
-                                                                          self.last_rot_velocity_cmd)
+
+        # simulate the error between the commands and the real states
+        self.curr_robot_velocity = [speed_x + np.random.randn() * NOISE_VAR_LINEAR_VELOCITY_TRANSLATION,
+                                    speed_y + np.random.randn() * NOISE_VAR_LINEAR_VELOCITY_TRANSLATION,
+                                    speed_yaw + np.random.randn() * NOISE_VAR_LINEAR_VELOCITY_ROTATION]
+
+        ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd = velocity2pos(self, self.curr_robot_velocity[0],
+                                                                          self.curr_robot_velocity[1],
+                                                                          self.curr_robot_velocity[2])
+        print("ground_yaw_cmd",ground_yaw_cmd)
         self.setRobotCmd(ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd)
 
-        # save the command of this moment
-        self.last_linear_velocity_cmd[0] = speed_x
-        self.last_linear_velocity_cmd[1] = speed_y
-        self.last_rot_velocity_cmd = speed_yaw
+
 
     def moveByWheelsCmd(self, left_speed, front_speed, right_speed):
         """
@@ -304,13 +308,17 @@ class OmniRobotEnvRender(object):
         :param front_speed: (float) linear speed of front wheel (meter/s)
         :param right_speed: (float) linear speed of right wheel (meter/s)
         """
-        ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd = wheelSpeed2pos(self, self.last_wheel_speeds_cmd[0],
-                                                                            self.last_wheel_speeds_cmd[1],
-                                                                            self.last_wheel_speeds_cmd[2])
+        # simulate the error between the commands and the real states
+        self.curr_wheel_speeds = [left_speed + np.random.randn() * NOISE_VAR_WHEEL_SPEEDS,
+                                    front_speed + np.random.randn() * NOISE_VAR_WHEEL_SPEEDS,
+                                    right_speed + np.random.randn() * NOISE_VAR_WHEEL_SPEEDS]
+                                    
+
+        ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd = wheelSpeed2pos(self, self.curr_wheel_speeds[0],
+                                                                            self.curr_wheel_speeds[1],
+                                                                            self.curr_wheel_speeds[2])
         self.setRobotCmd(ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd)
 
-        self.last_wheel_speeds_cmd = np.float32(
-            [left_speed, front_speed, right_speed])
 
     @staticmethod
     def normalizeAngle(angle):

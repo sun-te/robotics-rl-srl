@@ -16,7 +16,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Vector3, PoseStamped, Twist
 from std_msgs.msg import Bool
-from omnirobot_msgs.msg import WheelSpeeds
+from omnirobot_msgs.msg import WheelSpeeds, SimpleOdom
 
 
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
@@ -56,6 +56,14 @@ class OmniRobot(object):
         self.target_pos = [0, 0]
         self.target_yaw = 0
 
+        # current velocity of robot and target
+        # vx (m/s), vy (m/s), v_rotation(rad/s)
+        self.curr_robot_velocity = np.float32([0.0, 0.0, 0.0])
+
+        # current wheel speeds, this is different with last_wheel_speeds_cmd, it is the real states of the robot, not the command.
+        self.curr_wheel_speeds = np.float32(
+            [0.0, 0.0, 0.0])  # left, front, right (m/s)
+
         # status of moving
         self.move_finished = False
         self.target_pos_changed = False
@@ -67,6 +75,10 @@ class OmniRobot(object):
             "/visual_robot_pose", PoseStamped, self.visualRobotCallback, queue_size=10)
         self.visual_target_sub = rospy.Subscriber(
             "/visual_target_pose", PoseStamped, self.visualTargetCallback, queue_size=10)
+        self.curr_wheel_speeds_sub = rospy.Subscriber(
+            "/wheel_speeds", WheelSpeeds, self.currWheelSpeedsCallback, queue_size=10)
+        self.curr_robot_velocity_sub = rospy.Subscriber(
+            "/simple_odom", SimpleOdom, self.currSimpleOdomCallback, queue_size=10)
 
         self.pos_cmd_pub = rospy.Publisher(
             "/position_commands", Vector3, queue_size=10)
@@ -76,11 +88,15 @@ class OmniRobot(object):
         self.reset_odom_pub = rospy.Publisher(
             "/reset_odom", Vector3, queue_size=10)
         self.reset_signal_pub = rospy.Publisher("/reset", Bool, queue_size=10)
-        self.switch_velocity_controller_pub = rospy.Publisher("/switch/velocity_controller", Bool, queue_size=10)
-        self.switch_pos_controller_pub = rospy.Publisher("/switch/pos_controller", Bool, queue_size=10)
+        self.switch_velocity_controller_pub = rospy.Publisher(
+            "/switch/velocity_controller", Bool, queue_size=10)
+        self.switch_pos_controller_pub = rospy.Publisher(
+            "/switch/pos_controller", Bool, queue_size=10)
 
-        self.wheel_speeds_command_pub = rospy.Publisher("/wheel_speeds_commands", WheelSpeeds, queue_size=10)
-        self.velocity_command_pub = rospy.Publisher("/velocity_commands", Twist,  queue_size=10)
+        self.wheel_speeds_command_pub = rospy.Publisher(
+            "/wheel_speeds_commands", WheelSpeeds, queue_size=10)
+        self.velocity_command_pub = rospy.Publisher(
+            "/velocity_commands", Twist,  queue_size=10)
         # known issues, without sleep 1 second, publishers could not been setup
         rospy.sleep(1)
         # https://answers.ros.org/question/9665/test-for-when-a-rospy-publisher-become-available/?answer=14125#post-id-14125
@@ -154,6 +170,24 @@ class OmniRobot(object):
         msg.data = True
         self.stop_signal_pub.publish(msg)
         self.move_finished = True
+
+    def currWheelSpeedsCallback(self, wheel_speeds_msg):
+        """
+        Callback for ROS topic
+        Get the new updated wheel speeds from encoders
+        :param wheel_speeds_msg: (WheelSpeeds ROS message)
+        """
+        self.curr_wheel_speeds = [wheel_speeds_msg.left,
+                                  wheel_speeds_msg.front, wheel_speeds_msg.right]
+
+    def currSimpleOdomCallback(self, simple_odom_msg):
+        """
+        Callback for ROS topic
+        Get the new updated velocity from odom
+        :param simple_odom_msg: (SimpleOdom ROS message)
+        """
+        self.curr_wheel_speeds = [simple_odom_msg.local_v_x,
+                                  simple_odom_msg.local_v_y, simple_odom_msg.local_v_theta]
 
     def visualRobotCallback(self, pose_stamped_msg):
         """
@@ -252,7 +286,7 @@ class OmniRobot(object):
         msg = Bool(True)
         self.switch_velocity_controller_pub.publish(msg)
         self.enabled_velocity_controller = True
-    
+
     def disablePosController(self):
         """
         Disable the pos controller
@@ -279,7 +313,7 @@ class OmniRobot(object):
         sure this function called by a frequency more than 1Hz.
         In contrary, if new wheel speed commands arrives within 1 second, the robot
         will execute new command immediately. 
-        
+
         :param left_speed: (float) linear speed of left wheel (meter/s)
         :param front_speed: (float) linear speed of front wheel (meter/s)
         :param right_speed: (float) linear speed of right wheel (meter/s)
@@ -304,7 +338,7 @@ class OmniRobot(object):
         sure this function called by a frequency more than 1Hz.
         In contrary, if new velocity commands arrives within 1 second, the robot 
         will execute new command immediately. 
-        
+
         :param speed_x: (float) linear speed along x-axis (m/s) (forward-backward), in robot local coordinate
         :param speed_y: (float) linear speed along y-axis (m/s) (left-right), in robot local coordinate
         :param speed_yaw: (float) rotation speed of robot around z-axis (rad/s), in robot local coordinate
@@ -319,7 +353,6 @@ class OmniRobot(object):
         velocity_command_msg.angular.y = 0
         velocity_command_msg.angular.z = speed_yaw
         self.velocity_command_pub.publish(velocity_command_msg)
-        
 
     @staticmethod
     def normalizeAngle(angle):
@@ -348,25 +381,30 @@ class ImageCallback(object):
         self.distortion_coefficients = distortion_coefficients
 
     def imageCallback(self, msg):
-        try:    
+        try:
             # Convert your ROS Image message to OpenCV
             cv2_img = bridge.imgmsg_to_cv2(msg, "rgb8")
-            
+
             if self.first_msg:
                 shape = cv2_img.shape
                 min_length = min(shape[0], shape[1])
                 up_margin = int((shape[0] - min_length) / 2)  # row
                 left_margin = int((shape[1] - min_length) / 2)  # col
-                self.valid_box = [up_margin, up_margin + min_length, left_margin, left_margin + min_length]
-                print("origin size: {}x{}".format(shape[0],shape[1]))
-                print("crop each image to a square image, cropped size: {}x{}".format(min_length, min_length))
+                self.valid_box = [up_margin, up_margin +
+                                  min_length, left_margin, left_margin + min_length]
+                print("origin size: {}x{}".format(shape[0], shape[1]))
+                print("crop each image to a square image, cropped size: {}x{}".format(
+                    min_length, min_length))
                 self.first_msg = False
-            
-            undistort_image = cv2.undistort(cv2_img, self.camera_matrix, self.distortion_coefficients)
-            self.valid_img = undistort_image[self.valid_box[0]:self.valid_box[1], self.valid_box[2]:self.valid_box[3]]
+
+            undistort_image = cv2.undistort(
+                cv2_img, self.camera_matrix, self.distortion_coefficients)
+            self.valid_img = undistort_image[self.valid_box[0]
+                :self.valid_box[1], self.valid_box[2]:self.valid_box[3]]
 
         except CvBridgeError as e:
             print("CvBridgeError:", e)
+
 
 def saveSecondCamImage(im, episode_folder, episode_step, path="omnirobot_2nd_cam"):
     """
@@ -398,13 +436,17 @@ def waitTargetUpdate(omni_robot, timeout):
             time += 0.1
     return False
 
+
 class OmnirobotManager(OmnirobotManagerBase):
     """
     Omnirobot magager for real robot
     """
+
     def __init__(self):
-        super(OmnirobotManager, self).__init__(second_cam_topic=SECOND_CAM_TOPIC)
-        self.robot = OmniRobot(0,0,0) # assign the real robot object to manager
+        super(OmnirobotManager, self).__init__(
+            second_cam_topic=SECOND_CAM_TOPIC)
+        # assign the real robot object to manager
+        self.robot = OmniRobot(0, 0, 0)
         self.episode_idx = 0
         self.episode_step = 0
 
@@ -430,7 +472,8 @@ class OmnirobotManager(OmnirobotManagerBase):
 
         # Env reset
         random_init_position = self.sampleRobotInitalPosition()
-        self.robot.setRobotCmd(random_init_position[0], random_init_position[1], 0)
+        self.robot.setRobotCmd(
+            random_init_position[0], random_init_position[1], 0)
         self.robot.pubPosCmd()
 
         while True:  # check the new target can be seen
@@ -448,7 +491,8 @@ if __name__ == '__main__':
     with open(CAMERA_INFO_PATH, 'r') as stream:
         try:
             contents = yaml.load(stream)
-            camera_matrix = np.array(contents['camera_matrix']['data']).reshape((3,3))
+            camera_matrix = np.array(
+                contents['camera_matrix']['data']).reshape((3, 3))
             distortion_coefficients = np.array(
                 contents['distortion_coefficients']['data']).reshape((1, 5))
         except yaml.YAMLError as exc:
@@ -460,13 +504,15 @@ if __name__ == '__main__':
             "ATTENTION: This script is running under NO TARGET mode!!!")
     # Connect to ROS Topics
     if IMAGE_TOPIC is not None:
-        image_cb_wrapper = ImageCallback(camera_matrix, distortion_coefficients)
+        image_cb_wrapper = ImageCallback(
+            camera_matrix, distortion_coefficients)
         img_sub = rospy.Subscriber(
             IMAGE_TOPIC, Image, image_cb_wrapper.imageCallback, queue_size=1)
 
     if SECOND_CAM_TOPIC is not None:
         assert NotImplementedError
-        image_cb_wrapper_2 = ImageCallback(camera_matrix, distortion_coefficients)
+        image_cb_wrapper_2 = ImageCallback(
+            camera_matrix, distortion_coefficients)
         img_2_sub = rospy.Subscriber(
             SECOND_CAM_TOPIC, Image, image_cb_wrapper_2.imageCallback, queue_size=1)
 
@@ -492,7 +538,7 @@ if __name__ == '__main__':
     omnirobot_manager.robot.reset()
 
     omnirobot_manager.robot.pubPosCmd()
-    r = rospy.Rate(RL_CONTROL_FREQ) 
+    r = rospy.Rate(RL_CONTROL_FREQ)
     while not rospy.is_shutdown():
         print("wait for new command")
         msg = socket.recv_json()

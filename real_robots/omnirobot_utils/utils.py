@@ -25,6 +25,7 @@ def velocity2pos(robot, speed_x, speed_y, speed_yaw):
 
     ground_pos_cmd_x = robot.robot_pos[0] + (speed_x * cos_direction - speed_y * sin_direction) / RL_CONTROL_FREQ
     ground_pos_cmd_y = robot.robot_pos[1] + (speed_y * cos_direction + speed_x * sin_direction) / RL_CONTROL_FREQ
+    
     ground_yaw_cmd = robot.robot_yaw + speed_yaw / RL_CONTROL_FREQ
     return ground_pos_cmd_x, ground_pos_cmd_y, ground_yaw_cmd
 

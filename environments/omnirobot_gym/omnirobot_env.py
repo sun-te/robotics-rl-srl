@@ -74,13 +74,13 @@ class OmniRobotEnv(SRLGymEnv):
         :param env_rank: (int) the number ID of the environment
         :param srl_pipe: (Queue, [Queue]) contains the input and output of the SRL model
         :param use_position: (bool) Whether to use delta of positions as continuous actions
-        :param use_velocity: (bool) Whether to use velocity (3) as continuous actions
+        :param use_linear_acceleration: (bool) Whether to use velocity (3) as continuous actions
         :param use_wheel_speed:  (bool) Whether to use angular wheel speed (3)  as continuous actions
     """
 
     def __init__(self, renders=False, name="Omnirobot", is_discrete=True, save_path='srl_zoo/data/', state_dim=-1,
                  learn_states=False, srl_model="raw_pixels", record_data=False, action_repeat=1, random_target=True,
-                 shape_reward=False, env_rank=0, srl_pipe=None, use_position=False, use_velocity=False,
+                 shape_reward=False, env_rank=0, srl_pipe=None, use_position=False, use_linear_acceleration=False,
                  use_wheel_speed=False, **_):
 
         super(OmniRobotEnv, self).__init__(srl_model=srl_model,
@@ -99,7 +99,7 @@ class OmniRobotEnv(SRLGymEnv):
         # Action's type
         self._is_discrete = is_discrete
         self.use_position = use_position
-        self.use_velocity = use_velocity
+        self.use_linear_acceleration = use_linear_acceleration
         self.use_wheel_speed = use_wheel_speed
 
         self.observation = []
@@ -122,10 +122,9 @@ class OmniRobotEnv(SRLGymEnv):
                 action_dim = (2,)
                 self.action_space = BiggerBox(limits=np.array([ACTION_POSITIVE_HIGH, ACTION_POSITIVE_HIGH]),
                                               shape=action_dim, dtype=np.float32)
-            elif self.use_velocity:
-                action_dim = (3,)
-                self.action_space = BiggerBox(limits=np.array([OMNIBOT_SPEED_LIMIT, OMNIBOT_SPEED_LIMIT,
-                                                               OMNIBOT_SPEED_LIMIT]), shape=action_dim, dtype=np.float32)
+            elif self.use_linear_acceleration:
+                action_dim = (2,)
+                self.action_space = BiggerBox(limits=np.array([OMNIBOT_SPEED_LIMIT, OMNIBOT_SPEED_LIMIT]), shape=action_dim, dtype=np.float32)
             elif self.use_wheel_speed:
                 action_dim = (3,)
                 self.action_space = BiggerBox(limits=np.array([OMNIBOT_SPEED_LIMIT, OMNIBOT_SPEED_LIMIT,
@@ -154,7 +153,7 @@ class OmniRobotEnv(SRLGymEnv):
         if USING_OMNIROBOT_SIMULATOR:
             self.socket = OmniRobotSimulatorSocket(
                 output_size=[RENDER_WIDTH, RENDER_HEIGHT], random_target=self._random_target,
-                use_position=self.use_position, use_velocity=self.use_velocity, use_wheel_speed=self.use_wheel_speed)
+                use_position=self.use_position, use_linear_acceleration=self.use_linear_acceleration, use_wheel_speed=self.use_wheel_speed)
         else:
             # Initialize Baxter effector by connecting to the Gym bridge ROS node:
             self.context = zmq.Context()
@@ -205,6 +204,7 @@ class OmniRobotEnv(SRLGymEnv):
         """
         if not self._is_discrete:
             action = np.array(action)
+            
         assert self.action_space.contains(action)
 
         # Convert int action to action in (x,y,z) space
@@ -221,8 +221,8 @@ class OmniRobotEnv(SRLGymEnv):
         # Send the action to the server
         self.socket.send_json(
             {"command": "action", "action": self.action, "is_discrete": self._is_discrete,
-             "use_position": self.use_position, "use_velocity": self.use_velocity,
-             "use_wheel_speed": self.use_wheel_speed})
+             "use_position": self.use_position, "use_linear_acceleration": self.use_linear_acceleration,
+             "use_wheel_acceleration": self.use_wheel_speed})
 
         # Receive state data (position, etc), important to update state related values
         self.getEnvState()

@@ -195,10 +195,10 @@ def main():
                         help='Shape the reward (reward = - distance) instead of a sparse reward')
     parser.add_argument('-c', '--continuous-actions', action='store_true', default=False,
                         help='command by continuous actions (Delta of Positions, Velocity, Wheel Speed)')
-    parser.add_argument('-w', '--wheel-speed', action='store_true', default=False,
-                        help='action commands are angular wheel speed')
-    parser.add_argument('-vl', '--velocity', action='store_true', default=False,
-                        help='action commands are velocities')
+    parser.add_argument('-wacc', '--wheel-acceleration', action='store_true', default=False,
+                        help="action commands are wheel speed's acceleration")
+    parser.add_argument('-lacc', '--linear-acceleration', action='store_true', default=False,
+                        help='action commands are linear acceleration (acceleration on x, y, rot around z)')
     parser.add_argument('-p', '--position', action='store_true', default=False,
                         help='action commands are delta of positions')
     parser.add_argument('-joints', '--action-joints', action='store_true', default=False,
@@ -269,8 +269,8 @@ def main():
 
     env_kwargs["is_discrete"] = not args.continuous_actions
     env_kwargs["use_position"] = args.position
-    env_kwargs["use_velocity"] = args.velocity
-    env_kwargs["use_wheel_speed"] = args.wheel_speed
+    env_kwargs["use_linear_acceleration"] = args.linear_acceleration
+    env_kwargs["use_wheel_acceleration"] = args.wheel_acceleration
 
     printGreen("\nAgent = {} \n".format(args.algo))
 
