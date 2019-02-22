@@ -8,7 +8,6 @@ import shutil
 import time
 
 import numpy as np
-from gym.spaces import prng
 from stable_baselines import PPO2
 from stable_baselines.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines.common.policies import CnnPolicy
@@ -86,7 +85,7 @@ def env_thread(args, thread_num, partition=True, use_ppo2=False):
                (thread_num if thread_num <= args.num_episode % args.num_cpu else args.num_episode % args.num_cpu)
 
         env.seed(seed)
-        prng.seed(seed)  # this is for the sample() function from gym.space
+        env.action_space.seed(seed) # this is for the sample() function from gym.space
         obs = env.reset()
         done = False
         t = 0
@@ -136,7 +135,8 @@ def main():
     parser.add_argument('-w', '--wheel-speed', action='store_true', default=False)
     parser.add_argument('-vl', '--velocity', action='store_true', default=False)
     parser.add_argument('-p', '--position', action='store_true', default=False)
-
+    parser.add_argument('-joints', '--action-joints', action='store_true', default=False,
+                        help='set actions to the joints of the arm directly, instead of inverse kinematics')
     parser.add_argument('--seed', type=int, default=0, help='the seed')
     parser.add_argument('-f', '--force', action='store_true', default=False,
                         help='Force the save, even if it overrides something else,' +

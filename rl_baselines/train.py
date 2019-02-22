@@ -193,7 +193,14 @@ def main():
     parser.add_argument('--no-vis', action='store_true', default=False, help='disables visdom visualization')
     parser.add_argument('--shape-reward', action='store_true', default=False,
                         help='Shape the reward (reward = - distance) instead of a sparse reward')
-    parser.add_argument('-c', '--continuous-actions', action='store_true', default=False)
+    parser.add_argument('-c', '--continuous-actions', action='store_true', default=False,
+                        help='command by continuous actions (Delta of Positions, Velocity, Wheel Speed)')
+    parser.add_argument('-w', '--wheel-speed', action='store_true', default=False,
+                        help='action commands are angular wheel speed')
+    parser.add_argument('-vl', '--velocity', action='store_true', default=False,
+                        help='action commands are velocities')
+    parser.add_argument('-p', '--position', action='store_true', default=False,
+                        help='action commands are delta of positions')
     parser.add_argument('-joints', '--action-joints', action='store_true', default=False,
                         help='set actions to the joints of the arm directly, instead of inverse kinematics')
     parser.add_argument('-r', '--random-target', action='store_true', default=False,
@@ -248,7 +255,6 @@ def main():
     algo_class, algo_type, action_type = registered_rl[args.algo]
     algo = algo_class()
     ALGO = algo
-    
 
     # if callback frequency needs to be changed
     LOG_INTERVAL = algo.LOG_INTERVAL
@@ -262,6 +268,9 @@ def main():
                          "(or '-c') flag.")
 
     env_kwargs["is_discrete"] = not args.continuous_actions
+    env_kwargs["use_position"] = args.position
+    env_kwargs["use_velocity"] = args.velocity
+    env_kwargs["use_wheel_speed"] = args.wheel_speed
 
     printGreen("\nAgent = {} \n".format(args.algo))
 
