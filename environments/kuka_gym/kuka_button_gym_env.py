@@ -24,11 +24,11 @@ Z_TABLE = -0.2
 N_DISCRETE_ACTIONS = 6
 BUTTON_LINK_IDX = 1
 BUTTON_GLIDER_IDX = 1  # Button glider joint
-DELTA_V = 0.03  # velocity per physics step.
+DELTA_V = 0.3 # original value: 0.03, velocity per physics step.
 DELTA_V_CONTINUOUS = 0.0035  # velocity per physics step (for continuous actions).
 DELTA_THETA = 0.1  # angular velocity per physics step.
 RELATIVE_POS = True  # Use relative position for ground truth
-NOISE_STD = 0.01  # Add noise to actions, so the env is not fully deterministic
+NOISE_STD =  0.001 #0.01 # Add noise to actions, so the env is not fully deterministic
 NOISE_STD_CONTINUOUS = 0.0001
 NOISE_STD_JOINTS = 0.002
 N_RANDOM_ACTIONS_AT_INIT = 5  # Randomize init arm pos: take 5 random actions
@@ -345,7 +345,6 @@ class KukaButtonGymEnv(SRLGymEnv):
         """
         # Apply force to the button
         p.setJointMotorControl2(self.button_uid, BUTTON_GLIDER_IDX, controlMode=p.POSITION_CONTROL, targetPosition=0.1)
-
         for i in range(self._action_repeat):
             self._kuka.applyAction(action)
             p.stepSimulation()

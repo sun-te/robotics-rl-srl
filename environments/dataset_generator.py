@@ -18,6 +18,7 @@ from srl_zoo.utils import printRed, printYellow
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # used to remove debug info of tensorflow
 
+N_REPEAT_ACTION = 0
 
 def convertImagePath(args, path, record_id_start):
     """
@@ -51,7 +52,8 @@ def env_thread(args, thread_num, partition=True, use_ppo2=False):
         "record_data": not args.no_record_data,
         "multi_view": args.multi_view,
         "save_path": args.save_path,
-        "shape_reward": args.shape_reward
+        "shape_reward": args.shape_reward,
+        "action_repeat": args.action_repeat
     }
 
     if partition:
@@ -86,18 +88,23 @@ def env_thread(args, thread_num, partition=True, use_ppo2=False):
         done = False
         t = 0
         episode_toward_target_on = False
+        n_repeated_action = N_REPEAT_ACTION
         while not done:
             env.render()
 
-            if use_ppo2:
-                action, _ = model.predict([obs])
-            else:
-                if episode_toward_target_on and np.random.rand() < args.toward_target_timesteps_proportion:
-                    action = [env.actionPolicyTowardTarget()]
+            if n_repeated_action == N_REPEAT_ACTION:
+                if use_ppo2:
+                    action, _ = model.predict([obs])
                 else:
-                    action = [env.action_space.sample()]
+                    if episode_toward_target_on and np.random.rand() < args.toward_target_timesteps_proportion:
+                        action = [env.actionPolicyTowardTarget()]
+                    else:
+                        action = [env.action_space.sample()]
 
-            action_to_step = action[0]
+                action_to_step = action[0]
+                n_repeated_action = 0
+            else:
+                n_repeated_action += 1
             _, _, done, _ = env.step(action_to_step)
 
             frames += 1
@@ -145,6 +152,8 @@ def main():
                         help='number of timesteps to run PPO2 on before generating the dataset')
     parser.add_argument('--toward-target-timesteps-proportion', type=float, default=0.0,
                         help="propotion of timesteps that use simply towards target policy, should be 0.0 to 1.0")
+    parser.add_argument('--action-repeat', type=int, default=1,
+                        help='number of times an action will be repeated (default: 1)')
     args = parser.parse_args()
 
     assert (args.num_cpu > 0), "Error: number of cpu must be positive and non zero"
@@ -154,6 +163,7 @@ def main():
         "Error: cannot display the reward distribution for continuous reward"
     assert not(registered_env[args.env][3] is ThreadingType.NONE and args.num_cpu != 1), \
         "Error: cannot have more than 1 CPU for the environment {}".format(args.env)
+    assert args.action_repeat >= 1, "Error: --action-repeat cannot be less than 1"
     if args.num_cpu > args.num_episode:
         args.num_cpu = args.num_episode
         printYellow("num_cpu cannot be greater than num_episode, defaulting to {} cpus.".format(args.num_cpu))

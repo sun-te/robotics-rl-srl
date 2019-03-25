@@ -19,7 +19,7 @@ class Kuka:
                  small_constraints=True):
         self.urdf_root_path = urdf_root_path
         self.timestep = timestep
-        self.max_velocity = .35
+        self.max_velocity = 1.5 #.35
         self.max_force = 200.
         self.fingerA_force = 2
         self.fingerB_force = 2.5
@@ -129,7 +129,6 @@ class Kuka:
             dz = motor_commands[2]
             da = motor_commands[3]
             finger_angle = motor_commands[4]
-
             # Constrain effector position
             self.end_effector_pos[0] += dx
             self.end_effector_pos[0] = np.clip(self.end_effector_pos[0], self.min_x, self.max_x)
@@ -174,14 +173,14 @@ class Kuka:
                 p.resetJointState(self.kuka_uid, i, joint_poses[i])
 
         # Effectors grabbers angle
-        p.setJointMotorControl2(self.kuka_uid, 7, p.POSITION_CONTROL, targetPosition=self.end_effector_angle,
-                                force=self.max_force)
-        p.setJointMotorControl2(self.kuka_uid, 8, p.POSITION_CONTROL, targetPosition=-finger_angle,
-                                force=self.fingerA_force)
-        p.setJointMotorControl2(self.kuka_uid, 11, p.POSITION_CONTROL, targetPosition=finger_angle,
-                                force=self.fingerB_force)
+        #p.setJointMotorControl2(self.kuka_uid, 7, p.POSITION_CONTROL, targetPosition=self.end_effector_angle,
+        #                        force=self.max_force)
+        #p.setJointMotorControl2(self.kuka_uid, 8, p.POSITION_CONTROL, targetPosition=-finger_angle,
+        #                        force=self.fingerA_force)
+        #p.setJointMotorControl2(self.kuka_uid, 11, p.POSITION_CONTROL, targetPosition=finger_angle,
+        #                        force=self.fingerB_force)
 
-        p.setJointMotorControl2(self.kuka_uid, 10, p.POSITION_CONTROL, targetPosition=0,
-                                force=self.finger_tip_force)
-        p.setJointMotorControl2(self.kuka_uid, 13, p.POSITION_CONTROL, targetPosition=0,
-                                force=self.finger_tip_force)
+        #p.setJointMotorControl2(self.kuka_uid, 10, p.POSITION_CONTROL, targetPosition=0,
+        #                        force=self.finger_tip_force)
+        #p.setJointMotorControl2(self.kuka_uid, 13, p.POSITION_CONTROL, targetPosition=0,
+        #                        force=self.finger_tip_force)
