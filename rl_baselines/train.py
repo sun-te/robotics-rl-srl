@@ -174,25 +174,26 @@ def callback(_locals, _globals):
         if n_episodes >= 0:
 
             #For every checkpoint, we create one directory for saving logs file (policy and run mean std)
-            if n_episodes % EPISODE_WINDOW_DISTILLATION_WIN == 0:
-                ALGO.save(LOG_DIR + ALGO_NAME +'_' + str(n_episodes)+ "_model.pkl", _locals)
-                if(CROSS_EVAL):#If we want to do the cross evaluation after the training
-                    eps_path = LOG_DIR + "model_"+ str(n_episodes)
-                    try:
-                        os.mkdir(LOG_DIR + "model_"+ str(n_episodes))
-                    except OSError:
-                        print("Creation of the directory {} failed".format(eps_path))
+            if( EPISODE_WINDOW_DISTILLATION_WIN >0):
+                if n_episodes % EPISODE_WINDOW_DISTILLATION_WIN == 0:
+                    ALGO.save(LOG_DIR + ALGO_NAME +'_' + str(n_episodes)+ "_model.pkl", _locals)
+                    if(CROSS_EVAL):#If we want to do the cross evaluation after the training
+                        eps_path = LOG_DIR + "model_"+ str(n_episodes)
+                        try:
+                            os.mkdir(LOG_DIR + "model_"+ str(n_episodes))
+                        except OSError:
+                            print("Creation of the directory {} failed".format(eps_path))
 
-                    ALGO.save("{}/{}".format( eps_path, ALGO_NAME + "_model.pkl"), _locals)
-                    try:
-                        if 'env' in _locals:
-                            _locals['env'].save_running_average(eps_path)
-                        else:
-                            _locals['self'].env.save_running_average(eps_path)
-                    except AttributeError:
-                        pass
-                    # if CROSS_EVAL:
-                    #     episodeEval(LOG_DIR, EVAL_TASK)
+                        ALGO.save("{}/{}".format( eps_path, ALGO_NAME + "_model.pkl"), _locals)
+                        try:
+                            if 'env' in _locals:
+                                _locals['env'].save_running_average(eps_path)
+                            else:
+                                _locals['self'].env.save_running_average(eps_path)
+                        except AttributeError:
+                            pass
+                        # if CROSS_EVAL:
+                        #     episodeEval(LOG_DIR, EVAL_TASK)
 
     # Plots in visdom
     if viz and (n_steps + 1) % LOG_INTERVAL == 0:

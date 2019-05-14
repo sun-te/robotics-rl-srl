@@ -45,6 +45,10 @@ integrated along with some evolution strategies and SAC:
 -  SAC: Soft Actor Critic
 -  TRPO: Trust Region Policy Optimization (MPI Implementation)
 
+In the meanwhile, a distillation from two teacher policies is stacked (OmnirobotEnv-v0 ):
+-  DISTILLATION : Policy distillation from two pre-trained policy.
+(`https://arxiv.org/abs/1511.06295 <https://arxiv.org/abs/1511.06295>`__)
+
 Train an Agent with Discrete Actions
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
