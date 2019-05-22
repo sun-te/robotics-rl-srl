@@ -1,6 +1,9 @@
-cd srl  import numpy as np
+import numpy as np
 import pickle
 import torch as th
+from copy import deepcopy
+
+
 
 from tqdm import tqdm
 from torch import nn
@@ -56,12 +59,12 @@ class CNNPolicy(nn.Module):
         return F.softmax(self.model(input), dim=1)
 
 
-class PolicyDistillationModel(BaseRLObject):
+class ProgressAndCompressModel(BaseRLObject):
     """
     Implementation of PolicyDistillation
     """
     def __init__(self):
-        super(PolicyDistillationModel, self).__init__()
+        super(ProgressAndCompressModel, self).__init__()
 
     def save(self, save_path, _locals=None):
         assert self.model is not None, "Error: must train or load model before use"
@@ -72,7 +75,7 @@ class PolicyDistillationModel(BaseRLObject):
     def load(cls, load_path, args=None):
         with open(load_path, "rb") as f:
             class_dict = pickle.load(f)
-        loaded_model = PolicyDistillationModel()
+        loaded_model = ProgressAndCompressModel()
         loaded_model.__dict__ = class_dict
 
         return loaded_model
@@ -140,15 +143,19 @@ class PolicyDistillationModel(BaseRLObject):
     def loss_mse(self, outputs, teacher_outputs):
         return (outputs - teacher_outputs).pow(2).sum(1).mean()
 
-    def preparation_4_task(self, ind_task, data_loader):
+    def preparation_4_task(self, ind_task, data_loader_ewc):
 
         if ind_task == 0:
 
             self.params = {n: p for n, p in self.model.named_parameters() if p.requires_grad}
-            self._precision_matrices = self._diag_fisher(model, data_loader)
+            self._means = {}
+            self._precision_matrices = self._diag_fisher(self.model, data_loader_ewc)
+
+            #import pdb
+            #pdb.set_trace()
 
             for n, p in deepcopy(self.params).items():
-                self._means[n] = variable(p.data)
+                self._means[n] = th.tensor(p.data)
 
             return True
 
@@ -157,7 +164,7 @@ class PolicyDistillationModel(BaseRLObject):
             ### Compute Fischer info matrix
             self.params = {n: p for n, p in self.model.named_parameters() if p.requires_grad}
             self._means = {}
-            precision_matrices_this_task = self._diag_fisher(self.model, data_loader)
+            precision_matrices_this_task = self._diag_fisher(self.model, data_loader_ewc)
 
             # update fisher info with previous tasks fisher info, and this task fisher info (sum)
             if ind_task == 1:
@@ -167,30 +174,30 @@ class PolicyDistillationModel(BaseRLObject):
                                             precision_matrices_this_task.items()}
 
             for n, p in deepcopy(self.params).items():
-                self._means[n] = variable(p.data)
+                self._means[n] = th.tensor(p.data)
 
             return True
 
-    def _diag_fisher(self, model, data_loader):
+    def _diag_fisher(self, model, data_loader_ewc):
 
         precision_matrices = {}
         for n, p in deepcopy(self.params).items():
             p.data.zero_()
-            precision_matrices[n] = variable(p.data)
+            precision_matrices[n] = th.tensor(p.data)
 
         model.eval()
 
-        for minibatch_num, (minibatch_idx, obs, _, _, _) in enumerate(data_loader):
+        for minibatch_num, (minibatch_idx, obs, _, _, _) in enumerate(data_loader_ewc):
 
-            '''model.zero_grad()
-            input = variable(input).view(-1, 1)
-            output = model(input).view(1, -1)
+            model.zero_grad() # maybe optimizer.zero_grad() would be better. Not sure.
+            input = obs.to(self.device)
+            output = model.forward(input)
             label = output.max(1)[1].view(-1)
             loss = F.nll_loss(F.log_softmax(output, dim=1), label)
-            loss.backward()''' TODO
+            loss.backward()
 
             for n, p in model.named_parameters():
-                precision_matrices[n].data += p.grad.data ** 2 / len(data_loader)
+                precision_matrices[n].data += p.grad.data ** 2 / len(data_loader_ewc)
 
         precision_matrices = {n: p for n, p in precision_matrices.items()}
         return precision_matrices
@@ -200,16 +207,16 @@ class PolicyDistillationModel(BaseRLObject):
         N_EPOCHS = args.epochs_distillation
         self.seed = args.seed
         self.batch_size = BATCH_SIZE
-        self.lambda = args.lambda_p_and_c
+        self.lambda_ewc = args.lambda_p_and_c
         self.params = None # params of policy
         self._means = None
         self._precision_matrices = None
 
         #For loop with the sequential distillations
-        for ind_task in range(len(args.teacher_data_folder)):
+        for ind_task, path in enumerate(args.teacher_data_folder):
 
             print('Loading data for distillation ')
-            training_data, ground_truth, true_states, _ = loadData(args.teacher_data_folder, absolute_path=True)
+            training_data, ground_truth, true_states, _ = loadData(path, absolute_path=True)
             rewards, episode_starts = training_data['rewards'], training_data['episode_starts']
 
             images_path = ground_truth['images_path']
@@ -245,6 +252,7 @@ class PolicyDistillationModel(BaseRLObject):
             test_minibatchlist = DataLoader.createTestMinibatchList(len(images_path), MAX_BATCH_SIZE_GPU)
             test_data_loader = DataLoader(test_minibatchlist, images_path, n_workers=N_WORKERS, multi_view=False,
                                           use_triplets=False, max_queue_len=1, is_training=False, absolute_path=True)
+
 
             # Number of minibatches used for validation:
             n_val_batches = np.round(VALIDATION_SIZE * len(minibatchlist)).astype(np.int64)
@@ -305,7 +313,7 @@ class PolicyDistillationModel(BaseRLObject):
 
             self.optimizer = th.optim.Adam(learnable_params, lr=learning_rate)
             best_error = np.inf
-            best_model_path = "{}/distillation_model.pkl".format(args.log_dir)
+            best_model_path = "{}/{}_model.pkl".format(args.log_dir, args.algo)
 
             for epoch in range(N_EPOCHS):
                 # In each epoch, we do a full pass over the training data:
@@ -353,18 +361,23 @@ class PolicyDistillationModel(BaseRLObject):
                         state = obs.detach()
                     pred_action = self.model.forward(state)
 
+
                     loss = self.loss_fn_kd(pred_action,
-                                           actions_proba_st.float(),
-                                           labels=cl_labels_st, adaptive_temperature=USE_ADAPTIVE_TEMPERATURE)
+                                           actions_proba_st.float(), labels=cl_labels_st,
+                                           adaptive_temperature=USE_ADAPTIVE_TEMPERATURE)
 
                     if ind_task > 0:
                         # Add EWC regularization to loss function
                         loss_ewc = 0
                         for n, p in self.model.named_parameters():
+                            #import pdb
+                            #pdb.set_trace()
                             _loss = self._precision_matrices[n] * (p - self._means[n]) ** 2
-                            loss _ewc += _loss.sum()
-
-                        loss += self.lambda * loss_ewc
+                            loss_ewc += _loss.sum()
+                            
+                        loss += self.lambda_ewc * loss_ewc
+                        print(loss_ewc, 'Loss for EWC')
+                        print(loss, 'Loss total')
 
                     loss.backward()
                     if validation_mode:
@@ -387,56 +400,18 @@ class PolicyDistillationModel(BaseRLObject):
                     best_error = val_loss
                     self.save(best_model_path)
 
-                # Compute EWC regularization for next task
-                self.preparation_4_task(ind_task, data_loader)
+            # data loader of batch size 1 for EWC computations
+            minibatchlist_ewc = [np.array(sorted(indices[start_idx:start_idx + 1]))
+                                 for start_idx in range(0, len(indices), 1)]
+            data_loader_ewc = DataLoader(minibatchlist_ewc, images_path, n_workers=N_WORKERS, multi_view=False,
+                                         use_triplets=False, is_training=True, absolute_path=True)
+
+            # Compute EWC regularization for next task
+            print("Computing EWC regularization")
+            self.preparation_4_task(ind_task, data_loader_ewc)
+            #import pdb
+            #pdb.set_trace()
 
 
-
-
-
-from Training.Trainer import Trainer
-from torch.nn import functional as F
-from utils import variable
-import torch.nn as nn
-import torch
-import random
-import numpy as np
-from torch.autograd import Variable
-from copy import deepcopy
-
-
-class Ewc(Trainer):
-    def __init__(self, model, args):
-        super(Ewc, self).__init__(model, args)
-        self.params = None
-        self._means = None
-        self._precision_matrices = None
-        self.importance = args.lambda_EWC
-
-    def penalty(self, model: nn.Module):
-
-        if self.context == 'Classification':
-            models = [model]
-        elif self.context == 'Generation':
-            if model.model_name in ['CVAE', 'VAE']:
-                models = [model.G, model.E]
-            elif model.model_name in ['CGAN', 'GAN', 'WGAN', 'BEGAN']:
-                models = [model.G]
-
-        loss = 0
-        for model_ in models:
-            for n, p in model_.named_parameters():
-                _loss = self._precision_matrices[n] * (p - self._means[n]) ** 2
-                loss += _loss.sum()
-        return loss
-
-
-
-    def additional_loss(self, model):
-        if self.ind_task > 0:
-            loss = self.importance * self.penalty(model)
-        else:
-            loss = None
-        return loss
 
 

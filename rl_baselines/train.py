@@ -258,8 +258,8 @@ def main():
     parser.add_argument('-ec', '--eight-continual', action='store_true', default=False,
                         help='Green square target for task 4 of continual learning scenario. ' +
                              'The task is: robot should do the eigth with the target as center of the shape.')
-    parser.add_argument('--teacher-data-folder', type=str, default="",
-                        help='Dataset folder of the teacher(s) policy(ies)', required=False)
+    parser.add_argument('--teacher-data-folder', nargs='+', default=None,
+                        help='The datasets used for distillation.')
     parser.add_argument('--epochs-distillation', type=int, default=30, metavar='N',
                         help='number of epochs to train for distillation(default: 30)')
     parser.add_argument('--distillation-training-set-size', type=int, default=-1,
@@ -270,6 +270,8 @@ def main():
                         help='Episode window for saving each policy checkpoint for future distillation(default: 100)')
     parser.add_argument('--new-lr',type = float , default =1.e-4 ,
                         help="New learning rate ratio to train a pretrained agent")
+    parser.add_argument('--lambda-p-and-c', type=float, default=0,
+                        help="Lambda for EWC in Progress and Compress.")
 
     # Ignore unknown args for now
     args, unknown = parser.parse_known_args()
