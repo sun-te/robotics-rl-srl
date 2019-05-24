@@ -167,6 +167,10 @@ def mergeData(teacher_dataset_1, teacher_dataset_2, merge_dataset, force=False):
     merge_command = ['--merge', teacher_dataset_1, teacher_dataset_2, merge_dataset]
     if force:
         merge_command.append('-f')
+    message = ""
+    for m in (['python', '-m', 'environments.dataset_merger'] + merge_command):
+        message+= m+ " "
+    printRed(message)
     ok = subprocess.call(['python', '-m', 'environments.dataset_merger'] + merge_command)
     assert ok == 0
 

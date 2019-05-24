@@ -116,6 +116,7 @@ def main():
     print("environments:\t{}".format(envs))
     print("verbose:\t{}".format(args.verbose))
     print("timesteps:\t{}".format(args.num_timesteps))
+
     for model in srl_models:
         for env in envs:
             for i in range(args.num_iteration):
@@ -124,9 +125,9 @@ def main():
                     "\nIteration_num={} (seed: {}), Environment='{}', SRL-Model='{}'".format(i, seeds[i], env, model))
 
                 # redefine the parsed args for rl_baselines.train
+
                 loop_args = ['--srl-model', model, '--seed', str(seeds[i]), '--algo', args.algo, '--env', env,
                              '--num-timesteps', str(int(args.num_timesteps)), '--srl-config-file', args.srl_config_file]
-
                 ok = subprocess.call(['python', '-m', 'rl_baselines.train'] + train_args + loop_args, stdout=stdout)
 
                 if ok != 0:

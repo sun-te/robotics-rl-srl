@@ -34,7 +34,6 @@ class PPO2Model(StableBaselinesRLObject):
             "noptepochs": (int, (1, 10)),
             "n_steps": (int, (32, 2048))
         }
-
     def train(self, args, callback, env_kwargs=None, train_kwargs=None):
         if train_kwargs is None:
             train_kwargs = {}

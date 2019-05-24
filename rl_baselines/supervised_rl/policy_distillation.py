@@ -19,32 +19,36 @@ VALIDATION_SIZE = 0.2  # 20% of training data for validation
 MAX_BATCH_SIZE_GPU = 256  # For plotting, max batch_size before having memory issues
 RENDER_HEIGHT = 224
 RENDER_WIDTH = 224
-FINE_TUNING = False
 
 CONTINUAL_LEARNING_LABELS = ['CC', 'SC', 'EC', 'SQC']
 CL_LABEL_KEY = "continual_learning_label"
 USE_ADAPTIVE_TEMPERATURE = False
-TEMPERATURES = {'CC': 0.1, 'SC': 0.1, 'EC': 0.1, 'SQC': 0.1, "default": 0.01}
+TEMPERATURES = {'CC': 0.1, 'SC': 0.1, 'EC': 0.1, 'SQC': 0.1, "default": 0.001}
 # run with 0.1 to have good results!
 # 0.01 worse reward for CC, better SC
 
 
 class MLPPolicy(nn.Module):
-    def __init__(self, output_size, input_size, hidden_size=16):
+    def __init__(self, output_size, input_size, hidden_size=400):
         super(MLPPolicy, self).__init__()
 
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size = output_size
 
-        self.fc = nn.Sequential(nn.Linear(self.input_size, self.hidden_size),
-                                nn.ReLU(inplace=True),
-                                nn.Linear(self.hidden_size, self.output_size)
-                                )
+        self.fc1 = nn.Linear(self.input_size, self.hidden_size)
+        self.fc2 = nn.Linear(self.hidden_size, self.hidden_size)
+        self.fc3 = nn.Linear(self.hidden_size, self.hidden_size)
+        self.fc4 = nn.Linear(self.hidden_size, self.output_size)
 
     def forward(self, input):
+
         input = input.view(-1, self.input_size)
-        return F.softmax(self.fc(input), dim=1)
+        x = F.relu(self.fc1(input))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
+        x = F.softmax(self.fc4(x), dim=1)
+        return x
 
 
 class CNNPolicy(nn.Module):
@@ -130,7 +134,8 @@ class PolicyDistillationModel(BaseRLObject):
             T = th.from_numpy(np.array([TEMPERATURES[labels[idx_elm]] for idx_elm in range(BATCH_SIZE)])).cuda().float()
 
             KD_loss = F.softmax(th.div(teacher_outputs.transpose(1, 0), T), dim=1) * \
-                      th.log((F.softmax(th.div(teacher_outputs.transpose(1, 0), T), dim=1) / F.softmax(outputs, dim=1)))
+                      th.log((F.softmax(th.div(teacher_outputs.transpose(1, 0), T), dim=1) / F.softmax(
+                          th.div(outputs.transpose(1, 0), T), dim=1)))
         else:
             T = TEMPERATURES["default"]
             KD_loss = F.softmax(teacher_outputs/T, dim=1) * \
@@ -218,32 +223,20 @@ class PolicyDistillationModel(BaseRLObject):
         # TODO: add sanity checks & test for all possible SRL for distillation
         if env_kwargs["srl_model"] == "raw_pixels":
             self.model = CNNPolicy(n_actions)
-            learnable_params = self.model.parameters()
-            learning_rate = 1e-3
-
         else:
             self.state_dim = getSRLDim(env_kwargs.get("srl_model_path", None))
             self.srl_model = loadSRLModel(env_kwargs.get("srl_model_path", None),
                                           th.cuda.is_available(), self.state_dim, env_object=None)
+            self.model = MLPPolicy(n_actions, self.state_dim)
 
-
-            self.model = MLPPolicy(output_size=n_actions, input_size=self.state_dim)
-            for param in self.model.parameters():
-                param.requires_grad = True
-            learnable_params = [param for param in self.model.parameters()]
-
-            if FINE_TUNING and self.srl_model is not None:
-                for param in self.srl_model.model.parameters():
-                    param.requires_grad = True
-                learnable_params += [param for param in self.srl_model.model.parameters()]
-
-            learning_rate = 1e-3
         self.device = th.device("cuda" if th.cuda.is_available() else "cpu")
 
         if th.cuda.is_available():
             self.model.cuda()
 
-        self.optimizer = th.optim.Adam(learnable_params, lr=learning_rate)
+        learnable_params = self.model.parameters()
+        self.optimizer = th.optim.Adam(learnable_params, lr=1e-3)
+
         best_error = np.inf
         best_model_path = "{}/distillation_model.pkl".format(args.log_dir)
 
@@ -254,18 +247,13 @@ class PolicyDistillationModel(BaseRLObject):
             pbar = tqdm(total=len(minibatchlist))
 
             for minibatch_num, (minibatch_idx, obs, _, _, _) in enumerate(data_loader):
-                self.optimizer.zero_grad()
 
                 obs = obs.to(self.device)
                 validation_mode = minibatch_idx in val_indices
                 if validation_mode:
                     self.model.eval()
-                    if FINE_TUNING and self.srl_model is not None:
-                        self.srl_model.model.eval()
                 else:
                     self.model.train()
-                    if FINE_TUNING and self.srl_model is not None:
-                        self.srl_model.model.train()
 
                 # Actions associated to the observations of the current minibatch
                 actions_st = actions[minibatchlist[minibatch_idx]]
@@ -284,17 +272,12 @@ class PolicyDistillationModel(BaseRLObject):
                     actions_st = th.from_numpy(actions_st).view(-1, self.dim_action).requires_grad_(False).to(
                         self.device)
 
-                if self.srl_model is not None:
-                    state = self.srl_model.model.getStates(obs).to(self.device).detach()
-                    if "autoencoder" in self.srl_model.model.losses:
-                        use_ae = True
-                        decoded_obs = self.srl_model.model.model.decode(state).to(self.device).detach()
-                else:
-                    state = obs.detach()
+                state = obs.detach() if self.srl_model is None \
+                    else self.srl_model.model.getStates(obs).to(self.device).detach()
                 pred_action = self.model.forward(state)
 
                 loss = self.loss_fn_kd(pred_action, actions_proba_st.float(),
-                                        labels=cl_labels_st, adaptive_temperature=USE_ADAPTIVE_TEMPERATURE)
+                                       labels=cl_labels_st, adaptive_temperature=USE_ADAPTIVE_TEMPERATURE)
 
                 loss.backward()
                 if validation_mode:
@@ -306,6 +289,7 @@ class PolicyDistillationModel(BaseRLObject):
                     epoch_loss += loss.item()
                     epoch_batches += 1
                 pbar.update(1)
+                self.optimizer.zero_grad()
 
             train_loss = epoch_loss / float(epoch_batches)
             val_loss /= float(n_val_batches)

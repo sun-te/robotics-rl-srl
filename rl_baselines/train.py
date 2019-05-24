@@ -37,7 +37,7 @@ EPISODE_WINDOW = 40  # For plotting moving average
 EVAL_TASK=['cc','sc','sqc']
 CROSS_EVAL = True
 EPISODE_WINDOW_DISTILLATION_WIN = 20
-NEW_LR=0.001
+NEW_LR=0.0001
 
 
 viz = None
@@ -171,29 +171,28 @@ def callback(_locals, _globals):
             printGreen("Saving new best model")
             ALGO.save(LOG_DIR + ALGO_NAME + "_model.pkl", _locals)
 
-        if n_episodes >= 0:
 
-            #For every checkpoint, we create one directory for saving logs file (policy and run mean std)
-            if( EPISODE_WINDOW_DISTILLATION_WIN >0):
-                if n_episodes % EPISODE_WINDOW_DISTILLATION_WIN == 0:
-                    ALGO.save(LOG_DIR + ALGO_NAME +'_' + str(n_episodes)+ "_model.pkl", _locals)
-                    if(CROSS_EVAL):#If we want to do the cross evaluation after the training
-                        eps_path = LOG_DIR + "model_"+ str(n_episodes)
-                        try:
-                            os.mkdir(LOG_DIR + "model_"+ str(n_episodes))
-                        except OSError:
-                            print("Creation of the directory {} failed".format(eps_path))
 
-                        ALGO.save("{}/{}".format( eps_path, ALGO_NAME + "_model.pkl"), _locals)
-                        try:
-                            if 'env' in _locals:
-                                _locals['env'].save_running_average(eps_path)
-                            else:
-                                _locals['self'].env.save_running_average(eps_path)
-                        except AttributeError:
-                            pass
-                        # if CROSS_EVAL:
-                        #     episodeEval(LOG_DIR, EVAL_TASK)
+        #For every checkpoint, we create one directory for saving logs file (policy and run mean std)
+        if n_episodes % EPISODE_WINDOW_DISTILLATION_WIN == 0:
+            ALGO.save(LOG_DIR + ALGO_NAME +'_' + str(n_episodes)+ "_model.pkl", _locals)
+            if(CROSS_EVAL):#If we want to do the cross evaluation after the training
+                eps_path = LOG_DIR + "model_"+ str(n_episodes)
+                try:
+                    os.mkdir(LOG_DIR + "model_"+ str(n_episodes))
+                except OSError:
+                    print("Creation of the directory {} failed".format(eps_path))
+
+                ALGO.save("{}/{}".format( eps_path, ALGO_NAME + "_model.pkl"), _locals)
+                try:
+                    if 'env' in _locals:
+                        _locals['env'].save_running_average(eps_path)
+                    else:
+                        _locals['self'].env.save_running_average(eps_path)
+                except AttributeError:
+                    pass
+                # if CROSS_EVAL:
+                #     episodeEval(LOG_DIR, EVAL_TASK)
 
     # Plots in visdom
     if viz and (n_steps + 1) % LOG_INTERVAL == 0:
@@ -271,6 +270,8 @@ def main():
                         help='Episode window for saving each policy checkpoint for future distillation(default: 100)')
     parser.add_argument('--new-lr',type = float , default =1.e-4 ,
                         help="New learning rate ratio to train a pretrained agent")
+    parser.add_argument('--ewc-weight', type=float, default=1.e4,
+                        help="The weight we attribute for the old tasks")
 
     # Ignore unknown args for now
     args, unknown = parser.parse_known_args()
@@ -311,7 +312,7 @@ def main():
     ALGO_NAME = args.algo
     VISDOM_PORT = args.port
     EPISODE_WINDOW = args.episode_window
-    MIN_EPISODES_BEFORE_SAVE = args.min_episodes_save
+    MIN_EPISODES_BEFORE_SAVE = 0#args.min_episodes_save
     CROSS_EVAL = args.perform_cross_evaluation_cc
     EPISODE_WINDOW_DISTILLATION_WIN = args.eval_episode_window
     NEW_LR =args.new_lr
@@ -399,12 +400,15 @@ def main():
     # Get the hyperparameter, if given (Hyperband)
     hyperparams = {param.split(":")[0]: param.split(":")[1] for param in args.hyperparam}
     hyperparams = algo.parserHyperParam(hyperparams)
-    
+
+
     if args.load_rl_model_path is not None:
         # use a small learning rate
         print("use a small learning rate: {:f}".format(NEW_LR))
         hyperparams["learning_rate"] = lambda f: f * NEW_LR
-        
+        hyperparams["ewc_weight"] = args.ewc_weight
+
+
     # Train the agent
     # episodeEval(LOG_DIR,EVAL_TASK)
     # return
