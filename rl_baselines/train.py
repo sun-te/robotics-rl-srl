@@ -7,12 +7,15 @@ import json
 import os
 import sys
 import time
+import subprocess
 from datetime import datetime
 from pprint import pprint
 
+import numpy as np
 import yaml
 from stable_baselines.common import set_global_seeds
 from visdom import Visdom
+from shutil import copyfile
 
 from environments.registry import registered_env
 from environments.srl_env import SRLGymEnv
@@ -191,8 +194,24 @@ def callback(_locals, _globals):
                         _locals['self'].env.save_running_average(eps_path)
                 except AttributeError:
                     pass
-                # if CROSS_EVAL:
-                #     episodeEval(LOG_DIR, EVAL_TASK)
+        # if n_episodes % (EPISODE_WINDOW * 10) ==0:
+        #     copyfile(LOG_DIR + '/args.json', eps_path + '/args.json')
+        #     copyfile(LOG_DIR + '/env_globals.json', eps_path + '/env_globals.json')
+        #     for task_label in ['-sc', '-cc']:
+        #         for seed_i in range(2):
+        #             command_line_enjoy_student = ['python', '-m', 'replay.enjoy_baselines', '--num-timesteps', '251',
+        #                                       '--log-dir', eps_path+'/', task_label, "--seed", str(seed_i)]
+        #             ok = subprocess.check_output(command_line_enjoy_student)
+        #             ok = ok.decode('utf-8')
+        #             str_before = "Mean reward: "
+        #             str_after = "\npybullet"
+        #             idx_before = ok.find(str_before) + len(str_before)
+        #             idx_after = ok.find(str_after)
+        #             seed_reward = float(ok[idx_before: idx_after])
+        #
+        #         print("current rewards {} at episode {} with random seed: {} for task {}".format(
+        #             np.mean(seed_reward), n_episodes, 0, task_label))
+
 
     # Plots in visdom
     if viz and (n_steps + 1) % LOG_INTERVAL == 0:

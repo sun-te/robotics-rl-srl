@@ -122,7 +122,10 @@ class PPO2EWC(PPO2):
                     tf.gradients(q_value, self.params[v], unconnected_gradients='zero')[0]],
                     feed_dict={self.train_model.obs_ph: obs_sample,
                                self.params[v]: self.pretrained_weight[v]})
-
+                """
+                Add penalty only on the action space???
+                """
+                #if (len(np.unique(grad_action)) >1):
                 self.Fisher_accum[v] += np.square((grad_action + grad_value + grad_q))
             # Codes to show the convergence
             if(iter % (num_samples//10)==0):
@@ -254,7 +257,7 @@ class PPO2EWC(PPO2):
                 self.summary = tf.summary.merge_all()
 
 
-    def set_ewc_model(self, runner , num_timesteps=20000, ewc_weight = 0. ):
+    def set_ewc_model(self, runner , num_timesteps=40000, ewc_weight = 5. ):
         """
         set up the model for ewc
         :param runner:
@@ -264,15 +267,18 @@ class PPO2EWC(PPO2):
         """
         with self.graph.as_default():
 
-            self.compute_fisher(num_timesteps, runner)
+            #self.compute_fisher(num_timesteps, runner)
             with tf.variable_scope("ewc_loss", reuse=False):
                 loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef
                 # printGreen(self.sess.run(loss , {self.train_model.obs_ph: obs,  self.train_model.rewards_ph: reward}))
                 self.ewc_loss = 0
-
+                #
+                # for v in range(len(self.params)):
+                #     self.ewc_loss += (ewc_weight / 2) * tf.reduce_sum(
+                #         tf.multiply(self.Fisher_accum[v], tf.square(self.params[v] - self.pretrained_weight[v])))
                 for v in range(len(self.params)):
                     self.ewc_loss += (ewc_weight / 2) * tf.reduce_sum(
-                        tf.multiply(self.Fisher_accum[v], tf.square(self.params[v] - self.pretrained_weight[v])))
+                         tf.square(self.params[v] - self.pretrained_weight[v]))
                 loss += self.ewc_loss
 
                 tf.summary.scalar('elastic_weight_loss', self.ewc_loss)
@@ -290,7 +296,7 @@ class PPO2EWC(PPO2):
         #
         # self.summary = tf.summary.merge_all()
     def _train_step(self, learning_rate, cliprange, obs, returns, masks, actions, values, neglogpacs, update,
-                    writer, states=None):
+                    writer, states=None, ewc=False):
         """
         Training of PPO2 Algorithm
 
@@ -337,14 +343,19 @@ class PPO2EWC(PPO2):
                     td_map)
             writer.add_summary(summary, (update * update_fac))
         else:
-            policy_loss, ewc_loss , value_loss, policy_entropy, approxkl, clipfrac, _ = self.sess.run(
-                [self.pg_loss, self.ewc_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac, self._ewc_train], td_map)
-            print(ewc_loss)
+            if(ewc):
+                policy_loss, ewc_loss , value_loss, policy_entropy, approxkl, clipfrac, _ = self.sess.run(
+                    [self.pg_loss, self.ewc_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac, self._ewc_train], td_map)
+                print(ewc_loss)
+            else:
+                policy_loss, ewc_loss, value_loss, policy_entropy, approxkl, clipfrac, _ = self.sess.run(
+                    [self.pg_loss, self.ewc_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac,
+                     self._train], td_map)
         return policy_loss, value_loss, policy_entropy, approxkl, clipfrac
 
 
     def learn(self, total_timesteps, callback=None, seed=None, log_interval=1, tb_log_name="PPO2",
-              reset_num_timesteps=True):
+              reset_num_timesteps=True ):
         # Transform to callable if needed
         self.pretrained_weight = self.load_weight()
 
@@ -376,10 +387,13 @@ class PPO2EWC(PPO2):
             t_first_start = time.time()
 
             nupdates = total_timesteps // self.n_batch
-
-
+            flag_ewc = False
             for update in range(1, nupdates + 1):
                 assert self.n_batch % self.nminibatches == 0
+
+                if(update> 8.e5//self.n_batch):
+                    flag_ewc =True
+
                 batch_size = self.n_batch // self.nminibatches
                 t_start = time.time()
                 frac = 1.0 - (update - 1.0) / nupdates
@@ -402,7 +416,7 @@ class PPO2EWC(PPO2):
                             mbinds = inds[start:end]
                             slices = (arr[mbinds] for arr in (obs, returns, masks, actions, values, neglogpacs))
                             mb_loss_vals.append(self._train_step(lr_now, cliprangenow, *slices, writer=writer,
-                                                                 update=timestep))
+                                                                 update=timestep,ewc=flag_ewc))
 
                     self.num_timesteps += (self.n_batch * self.noptepochs) // batch_size * update_fac
                 else:  # recurrent version
@@ -422,7 +436,7 @@ class PPO2EWC(PPO2):
                             slices = (arr[mb_flat_inds] for arr in (obs, returns, masks, actions, values, neglogpacs))
                             mb_states = states[mb_env_inds]
                             mb_loss_vals.append(self._train_step(lr_now, cliprangenow, *slices, update=timestep,
-                                                                 writer=writer, states=mb_states))
+                                                                 writer=writer, states=mb_states ,ewc=flag_ewc))
                     self.num_timesteps += (self.n_envs * self.noptepochs) // envs_per_batch * update_fac
                 loss_vals = np.mean(mb_loss_vals, axis=0)
                 t_now = time.time()
