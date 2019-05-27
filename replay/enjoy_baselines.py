@@ -91,7 +91,7 @@ def loadConfigAndSetup(load_args):
         raise ValueError(algo_name + " is not supported for replay")
     printGreen("\n" + algo_name + "\n")
 
-    try:  #If args contains episode information, this is for student_evaluation (disstilation)
+    try:
         if(not load_args.episode ==-1):
             load_path = "{}/{}_{}_model.pkl".format(load_args.log_dir, algo_name,load_args.episode,)
         else:
@@ -197,7 +197,6 @@ def main():
     # createTensorflowSession()
 
     printYellow("Compiling Policy function....")
-    printYellow(load_path)
     method = algo_class.load(load_path, args=algo_args)
 
     dones = [False for _ in range(load_args.num_cpu)]

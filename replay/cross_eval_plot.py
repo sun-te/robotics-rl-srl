@@ -19,12 +19,25 @@ fontstyle = {'fontname': 'DejaVu Sans', 'fontsize': 20, 'fontweight': 'bold'}
 rc('font', weight='bold')
 
 
-def crossEvalPlot(res, tasks, title, y_limits):
-    y_array = res[:, :, 1:]
-    #    y_array = np.sort(res[:, :, 1:], axis=2)
-    #     y_array = np.mean(y_array[:,:,1:],axis=2)
+def crossEvalPlot(res, tasks, title, y_limits , truncate_x):
 
-    x = res[:, :, 0][0]
+    index_x = -1
+    episodes = res[:,:,0][0]
+    if (truncate_x>-1):
+        for eps in episodes:
+            index_x += 1
+            if(eps >= truncate_x):
+                break
+    if(index_x ==-1 ):
+        y_array = res[:, :, 1:]
+        x = res[:, :, 0][0]
+    else:
+        y_array = res[:, :index_x, 1:]
+        x = res[:, :index_x, 0][0]
+
+    sum_mean = []
+    sum_s    = []
+    sum_n    = []
 
     fig = plt.figure(title)
     for i in range(len(y_array)):
@@ -36,8 +49,25 @@ def crossEvalPlot(res, tasks, title, y_limits):
         # Compute standard error
         s = np.squeeze(np.asarray(np.std(y, axis=0)))
         n = y.shape[0]
+        sum_mean +=[m]
+        sum_s    +=[s]
+        sum_n    +=[n]
         plt.fill_between(x, m - s / np.sqrt(n), m + s / np.sqrt(n), color=lightcolors[i % len(lightcolors)], alpha=0.5)
         plt.plot(x, m, color=darkcolors[i % len(darkcolors)], label=label, linewidth=2)
+
+    #reward_sum = np.concatenate([res[0, :index_x, 1:], res[1, :index_x, 1:]], axis=1)
+    print_reward_sum = True
+    if(print_reward_sum):
+
+        m = np.mean(sum_mean, axis=0)
+        # Compute standard error
+        s = np.mean(sum_s)
+        n = np.mean(n)
+        plt.fill_between(x, m - s / np.sqrt(n), m + s / np.sqrt(n), color=lightcolors[4 % len(lightcolors)], alpha=0.5)
+        plt.plot(x, m, color=darkcolors[4 % len(darkcolors)], label='mean reward', linewidth=2)
+
+
+
 
     plt.xlabel('Number of Episodes')
     plt.ylabel('Rewards', fontsize=20, fontweight='bold')
@@ -59,7 +89,7 @@ def smoothPlot(res, tasks, title, y_limits):
     fig = plt.figure(title)
     for i in range(len(y)):
         label = tasks[i]
-        tmp_x, tmp_y = smoothRewardCurve(x, y[i], conv_len=3)
+        tmp_x, tmp_y = smoothRewardCurve(x, y[i], conv_len=2)
         plt.plot(tmp_x, tmp_y, color=darkcolors[i % len(darkcolors)], label=label, linewidth=2)
     plt.xlabel('Number of Episodes')
     plt.ylabel('Rewards', fontsize=20, fontweight='bold')
@@ -94,7 +124,7 @@ if __name__ == '__main__':
     title     = args.title
     y_limits  = args.y_lim
     tasks     = args.eval_tasks
-
+    truncate_x= args.truncate_x
 
 
     assert (os.path.isfile(load_path) and load_path.split('.')[-1]=='pkl'), 'Please load a valid .pkl file'
@@ -105,8 +135,9 @@ if __name__ == '__main__':
 
 
     res = dict2array(['cc', 'sc'], data)
+
     print("{} episodes evaluations to plot".format(res.shape[1]))
     if(args.smooth):
         smoothPlot(res[:,1:],tasks,title,y_limits)
     else:
-        crossEvalPlot(res[:,1:], tasks, title,y_limits)
+        crossEvalPlot(res[:,:], tasks, title,y_limits, truncate_x)
