@@ -314,9 +314,11 @@ class ProgressAndCompressModel(BaseRLObject):
                 if th.cuda.is_available():
                     self.model.cuda()
 
-                self.optimizer = th.optim.Adam(learnable_params, lr=learning_rate)
                 best_error = np.inf
-
+                
+            learnable_params = self.model.parameters()
+            learning_rate = 1e-3
+            self.optimizer = th.optim.Adam(learnable_params, lr=learning_rate)
             best_model_path = "{}/{}_model.pkl".format(args.log_dir, args.algo)
 
             for epoch in range(N_EPOCHS):
