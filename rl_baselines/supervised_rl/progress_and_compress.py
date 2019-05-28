@@ -215,6 +215,7 @@ class ProgressAndCompressModel(BaseRLObject):
         #For loop with the sequential distillations
         for ind_task, path in enumerate(args.teacher_data_folder):
 
+
             print('Loading data for distillation ')
             training_data, ground_truth, true_states, _ = loadData(path, absolute_path=True)
             rewards, episode_starts = training_data['rewards'], training_data['episode_starts']
@@ -284,35 +285,38 @@ class ProgressAndCompressModel(BaseRLObject):
             self.state_dim = RENDER_HEIGHT * RENDER_WIDTH * 3
             self.srl_model = None
 
-            # TODO: add sanity checks & test for all possible SRL for distillation
-            if env_kwargs["srl_model"] == "raw_pixels":
-                self.model = CNNPolicy(n_actions)
-                learnable_params = self.model.parameters()
-                learning_rate = 1e-3
+            if ind_task == 0: # only set this at first iter
 
-            else:
-                self.state_dim = getSRLDim(env_kwargs.get("srl_model_path", None))
-                self.srl_model = loadSRLModel(env_kwargs.get("srl_model_path", None),
-                                              th.cuda.is_available(), self.state_dim, env_object=None)
+                # TODO: add sanity checks & test for all possible SRL for distillation
+                if env_kwargs["srl_model"] == "raw_pixels":
+                    self.model = CNNPolicy(n_actions)
+                    learnable_params = self.model.parameters()
+                    learning_rate = 1e-3
 
-                self.model = MLPPolicy(output_size=n_actions, input_size=self.state_dim)
-                for param in self.model.parameters():
-                    param.requires_grad = True
-                learnable_params = [param for param in self.model.parameters()]
+                else:
+                    self.state_dim = getSRLDim(env_kwargs.get("srl_model_path", None))
+                    self.srl_model = loadSRLModel(env_kwargs.get("srl_model_path", None),
+                                                  th.cuda.is_available(), self.state_dim, env_object=None)
 
-                if FINE_TUNING and self.srl_model is not None:
-                    for param in self.srl_model.model.parameters():
+                    self.model = MLPPolicy(output_size=n_actions, input_size=self.state_dim)
+                    for param in self.model.parameters():
                         param.requires_grad = True
-                    learnable_params += [param for param in self.srl_model.model.parameters()]
+                    learnable_params = [param for param in self.model.parameters()]
 
-                learning_rate = 1e-3
-            self.device = th.device("cuda" if th.cuda.is_available() else "cpu")
+                    if FINE_TUNING and self.srl_model is not None:
+                        for param in self.srl_model.model.parameters():
+                            param.requires_grad = True
+                        learnable_params += [param for param in self.srl_model.model.parameters()]
 
-            if th.cuda.is_available():
-                self.model.cuda()
+                    learning_rate = 1e-3
+                self.device = th.device("cuda" if th.cuda.is_available() else "cpu")
 
-            self.optimizer = th.optim.Adam(learnable_params, lr=learning_rate)
-            best_error = np.inf
+                if th.cuda.is_available():
+                    self.model.cuda()
+
+                self.optimizer = th.optim.Adam(learnable_params, lr=learning_rate)
+                best_error = np.inf
+
             best_model_path = "{}/{}_model.pkl".format(args.log_dir, args.algo)
 
             for epoch in range(N_EPOCHS):
@@ -370,11 +374,9 @@ class ProgressAndCompressModel(BaseRLObject):
                         # Add EWC regularization to loss function
                         loss_ewc = 0
                         for n, p in self.model.named_parameters():
-                            #import pdb
-                            #pdb.set_trace()
                             _loss = self._precision_matrices[n] * (p - self._means[n]) ** 2
                             loss_ewc += _loss.sum()
-                            
+
                         loss += self.lambda_ewc * loss_ewc
                         print(loss_ewc, 'Loss for EWC')
                         print(loss, 'Loss total')
