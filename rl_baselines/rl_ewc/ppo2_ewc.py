@@ -3,7 +3,6 @@ from collections import deque
 import multiprocessing
 import sys
 
-import pickle
 import numpy as np
 import tensorflow as tf
 
@@ -13,11 +12,10 @@ from rl_baselines.base_classes import StableBaselinesRLObject
 from stable_baselines import PPO2
 from stable_baselines.ppo2.ppo2 import get_schedule_fn, Runner,safe_mean
 from stable_baselines import logger
-from stable_baselines.common import explained_variance, ActorCriticRLModel, tf_util, SetVerbosity, TensorboardWriter
-from stable_baselines.common.runners import AbstractEnvRunner
+from stable_baselines.common import explained_variance, tf_util, SetVerbosity, TensorboardWriter
 from stable_baselines.common.policies import LstmPolicy, ActorCriticPolicy
 from stable_baselines.a2c.utils import total_episode_reward_logger
-from srl_zoo.utils import  printRed, printYellow, printGreen
+from srl_zoo.utils import   printGreen
 
 
 class PPO2EWC(PPO2):
@@ -71,6 +69,7 @@ class PPO2EWC(PPO2):
 
         self.Fisher_accum = None      # list of array
         self.pretrained_weight = None # list of array
+
         if _init_setup_model:
             self.setup_model()
 
@@ -87,10 +86,14 @@ class PPO2EWC(PPO2):
         return pretrained_weight
 
     def compute_fisher(self,num_timesteps,runner):
-
+        """
+        To get the accumulated fisher information matrxi
+        :param num_timesteps: timesteps for the sampleing
+        :param runner:
+        :return:
+        """
 
         num_samples =num_timesteps // self.n_batch
-
 
         # Creation of a new variable to the class PPO2
         self.Fisher_accum = [np.zeros_like(var) for var in self.pretrained_weight]
@@ -98,12 +101,8 @@ class PPO2EWC(PPO2):
         F_prev = deepcopy(self.Fisher_accum)
         mean_diffs = np.zeros(0)
         for iter in range(1, num_samples + 1):
-
-
             obs, returns, masks, actions, values, neglogpacs, states, ep_infos, true_reward = runner.run()
-            sample_length = obs.shape[0]
             #randomly sample  from the action, value and q-value
-
             step_ind = np.random.randint(self.n_steps)
             action_ind  = tf.to_int32(tf.random.categorical(tf.log(self.train_model.policy_proba), 1))[:, 0]
             n_action = self.train_model.policy_proba.shape[1]
@@ -111,11 +110,9 @@ class PPO2EWC(PPO2):
             action_prob = tf.boolean_mask(self.train_model.policy_proba, action_mask)
             q_value  = tf.boolean_mask(self.train_model.q_value ,action_mask)
             #compute the fisher accumualated information
-
             for v  in range(len(self.params)):
                 #the first order derivative of the action proba by parameters (weight matrix)
                 obs_sample  = obs[step_ind:step_ind+1]
-
                 grad_action, grad_value, grad_q = self.sess.run([
                     tf.gradients(action_prob, self.params[v], unconnected_gradients='zero')[0],
                     tf.gradients(self.train_model._value, self.params[v], unconnected_gradients='zero')[0],
@@ -123,13 +120,12 @@ class PPO2EWC(PPO2):
                     feed_dict={self.train_model.obs_ph: obs_sample,
                                self.params[v]: self.pretrained_weight[v]})
                 """
-                Add penalty only on the action space???
+                Add penalization only on the action space, or do the regularization on all outputs
                 """
                 #if (len(np.unique(grad_action)) >1):
                 self.Fisher_accum[v] += np.square((grad_action + grad_value + grad_q))
             # Codes to show the convergence
             if(iter % (num_samples//10)==0):
-
                 F_diff = 0
                 Fisher_total = 0
                 for v in range(len(self.Fisher_accum)):
@@ -146,117 +142,6 @@ class PPO2EWC(PPO2):
             self.Fisher_accum[v] /= (num_samples)
 
 
-    def setup_model(self):
-        with SetVerbosity(self.verbose):
-            assert issubclass(self.policy, ActorCriticPolicy), "Error: the input policy for the PPO2 model must be " \
-                                                               "an instance of common.policies.ActorCriticPolicy."
-
-            self.n_batch = self.n_envs * self.n_steps
-
-            n_cpu = multiprocessing.cpu_count()
-            if sys.platform == 'darwin':
-                n_cpu //= 2
-
-            self.graph = tf.Graph()
-            with self.graph.as_default():
-                self.sess = tf_util.make_session(num_cpu=n_cpu, graph=self.graph)
-
-                n_batch_step = None
-                n_batch_train = None
-                if issubclass(self.policy, LstmPolicy):
-                    assert self.n_envs % self.nminibatches == 0, "For recurrent policies, "\
-                        "the number of environments run in parallel should be a multiple of nminibatches."
-                    n_batch_step = self.n_envs
-                    n_batch_train = self.n_batch // self.nminibatches
-
-                act_model = self.policy(self.sess, self.observation_space, self.action_space, self.n_envs, 1,
-                                        n_batch_step, reuse=False, **self.policy_kwargs)
-                with tf.variable_scope("train_model", reuse=True,
-                                       custom_getter=tf_util.outer_scope_getter("train_model")):
-                    train_model = self.policy(self.sess, self.observation_space, self.action_space,
-                                              self.n_envs // self.nminibatches, self.n_steps, n_batch_train,
-                                              reuse=True, **self.policy_kwargs)
-
-                with tf.variable_scope("loss", reuse=False):
-                    self.action_ph = train_model.pdtype.sample_placeholder([None], name="action_ph")
-                    self.advs_ph = tf.placeholder(tf.float32, [None], name="advs_ph")
-                    self.rewards_ph = tf.placeholder(tf.float32, [None], name="rewards_ph")
-                    self.old_neglog_pac_ph = tf.placeholder(tf.float32, [None], name="old_neglog_pac_ph")
-                    self.old_vpred_ph = tf.placeholder(tf.float32, [None], name="old_vpred_ph")
-                    self.learning_rate_ph = tf.placeholder(tf.float32, [], name="learning_rate_ph")
-                    self.clip_range_ph = tf.placeholder(tf.float32, [], name="clip_range_ph")
-
-                    neglogpac = train_model.proba_distribution.neglogp(self.action_ph)
-                    self.entropy = tf.reduce_mean(train_model.proba_distribution.entropy())
-
-                    vpred = train_model._value
-                    vpredclipped = self.old_vpred_ph + tf.clip_by_value(
-                        train_model._value - self.old_vpred_ph, - self.clip_range_ph, self.clip_range_ph)
-                    vf_losses1 = tf.square(vpred - self.rewards_ph)
-                    vf_losses2 = tf.square(vpredclipped - self.rewards_ph)
-                    self.vf_loss = .5 * tf.reduce_mean(tf.maximum(vf_losses1, vf_losses2))
-                    ratio = tf.exp(self.old_neglog_pac_ph - neglogpac)
-                    pg_losses = -self.advs_ph * ratio
-                    pg_losses2 = -self.advs_ph * tf.clip_by_value(ratio, 1.0 - self.clip_range_ph, 1.0 +
-                                                                  self.clip_range_ph)
-                    self.pg_loss = tf.reduce_mean(tf.maximum(pg_losses, pg_losses2))
-                    self.approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - self.old_neglog_pac_ph))
-                    self.clipfrac = tf.reduce_mean(tf.cast(tf.greater(tf.abs(ratio - 1.0),
-                                                                      self.clip_range_ph), tf.float32))
-                    loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef
-
-                    tf.summary.scalar('entropy_loss', self.entropy)
-                    tf.summary.scalar('policy_gradient_loss', self.pg_loss)
-                    tf.summary.scalar('value_function_loss', self.vf_loss)
-                    tf.summary.scalar('approximate_kullback-leiber', self.approxkl)
-                    tf.summary.scalar('clip_factor', self.clipfrac)
-                    tf.summary.scalar('loss', loss)
-
-                    with tf.variable_scope('model'):
-                        self.params = tf.trainable_variables()
-                        if self.full_tensorboard_log:
-                            for var in self.params:
-                                tf.summary.histogram(var.name, var)
-                    grads = tf.gradients(loss, self.params)
-                    if self.max_grad_norm is not None:
-                        grads, _grad_norm = tf.clip_by_global_norm(grads, self.max_grad_norm)
-                    grads = list(zip(grads, self.params))
-                trainer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_ph, epsilon=1e-5)
-                self._train = trainer.apply_gradients(grads)
-
-                self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac']
-
-                with tf.variable_scope("input_info", reuse=False):
-                    tf.summary.scalar('discounted_rewards', tf.reduce_mean(self.rewards_ph))
-                    tf.summary.scalar('learning_rate', tf.reduce_mean(self.learning_rate_ph))
-                    tf.summary.scalar('advantage', tf.reduce_mean(self.advs_ph))
-                    tf.summary.scalar('clip_range', tf.reduce_mean(self.clip_range_ph))
-                    tf.summary.scalar('old_neglog_action_probabilty', tf.reduce_mean(self.old_neglog_pac_ph))
-                    tf.summary.scalar('old_value_pred', tf.reduce_mean(self.old_vpred_ph))
-
-                    if self.full_tensorboard_log:
-                        tf.summary.histogram('discounted_rewards', self.rewards_ph)
-                        tf.summary.histogram('learning_rate', self.learning_rate_ph)
-                        tf.summary.histogram('advantage', self.advs_ph)
-                        tf.summary.histogram('clip_range', self.clip_range_ph)
-                        tf.summary.histogram('old_neglog_action_probabilty', self.old_neglog_pac_ph)
-                        tf.summary.histogram('old_value_pred', self.old_vpred_ph)
-                        if tf_util.is_image(self.observation_space):
-                            tf.summary.image('observation', train_model.obs_ph)
-                        else:
-                            tf.summary.histogram('observation', train_model.obs_ph)
-
-                self.train_model = train_model
-                self.act_model = act_model
-                self.step = act_model.step
-                self.proba_step = act_model.proba_step
-                self.value = act_model.value
-                self.initial_state = act_model.initial_state
-                tf.global_variables_initializer().run(session=self.sess)  # pylint: disable=E1101
-
-                self.summary = tf.summary.merge_all()
-
-
     def set_ewc_model(self, runner , num_timesteps=40000, ewc_weight = 5. ):
         """
         set up the model for ewc
@@ -267,18 +152,19 @@ class PPO2EWC(PPO2):
         """
         with self.graph.as_default():
 
-            #self.compute_fisher(num_timesteps, runner)
+            self.compute_fisher(num_timesteps, runner)
             with tf.variable_scope("ewc_loss", reuse=False):
                 loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef
                 # printGreen(self.sess.run(loss , {self.train_model.obs_ph: obs,  self.train_model.rewards_ph: reward}))
                 self.ewc_loss = 0
-                #
-                # for v in range(len(self.params)):
-                #     self.ewc_loss += (ewc_weight / 2) * tf.reduce_sum(
-                #         tf.multiply(self.Fisher_accum[v], tf.square(self.params[v] - self.pretrained_weight[v])))
+
                 for v in range(len(self.params)):
                     self.ewc_loss += (ewc_weight / 2) * tf.reduce_sum(
-                         tf.square(self.params[v] - self.pretrained_weight[v]))
+                        tf.multiply(self.Fisher_accum[v], tf.square(self.params[v] - self.pretrained_weight[v])))
+                # This is some codes for a naive regularization
+                # for v in range(len(self.params)):
+                #     self.ewc_loss += (ewc_weight / 2) * tf.reduce_sum(
+                #          tf.square(self.params[v] - self.pretrained_weight[v]))
                 loss += self.ewc_loss
 
                 tf.summary.scalar('elastic_weight_loss', self.ewc_loss)
@@ -293,8 +179,8 @@ class PPO2EWC(PPO2):
 
             tf.global_variables_initializer().run(session=self.sess)  # pylint: disable=E1101
             self.summary = tf.summary.merge_all()
-        #
-        # self.summary = tf.summary.merge_all()
+        self.summary = tf.summary.merge_all()
+
     def _train_step(self, learning_rate, cliprange, obs, returns, masks, actions, values, neglogpacs, update,
                     writer, states=None, ewc=False):
         """
@@ -343,24 +229,16 @@ class PPO2EWC(PPO2):
                     td_map)
             writer.add_summary(summary, (update * update_fac))
         else:
-            if(ewc):
-                policy_loss, ewc_loss , value_loss, policy_entropy, approxkl, clipfrac, _ = self.sess.run(
-                    [self.pg_loss, self.ewc_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac, self._ewc_train], td_map)
-                print(ewc_loss)
-            else:
-                policy_loss, ewc_loss, value_loss, policy_entropy, approxkl, clipfrac, _ = self.sess.run(
-                    [self.pg_loss, self.ewc_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac,
-                     self._train], td_map)
+            policy_loss, ewc_loss , value_loss, policy_entropy, approxkl, clipfrac, _ = self.sess.run(
+                [self.pg_loss, self.ewc_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac, self._ewc_train], td_map)
+            print(ewc_loss)
         return policy_loss, value_loss, policy_entropy, approxkl, clipfrac
 
 
     def learn(self, total_timesteps, callback=None, seed=None, log_interval=1, tb_log_name="PPO2",
               reset_num_timesteps=True ):
-        # Transform to callable if needed
+
         self.pretrained_weight = self.load_weight()
-
-
-
         self.learning_rate = get_schedule_fn(self.learning_rate)
         self.cliprange = get_schedule_fn(self.cliprange)
 
