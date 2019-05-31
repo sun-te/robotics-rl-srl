@@ -7,7 +7,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from rl_baselines.base_classes import BaseRLObject
-from srl_zoo.models.models import CustomCNN
+from srl_zoo.models.models import CustomCNNExtraDim
 from srl_zoo.preprocessing.data_loader import SupervisedDataLoader, DataLoader
 from srl_zoo.utils import loadData
 from state_representation.models import loadSRLModel, getSRLDim
@@ -23,8 +23,8 @@ FINE_TUNING = False
 
 CONTINUAL_LEARNING_LABELS = ['CC', 'SC', 'EC', 'SQC']
 CL_LABEL_KEY = "continual_learning_label"
-USE_ADAPTIVE_TEMPERATURE = False
-TEMPERATURES = {'CC': 0.1, 'SC': 0.1, 'EC': 0.1, 'SQC': 0.1, "default": 0.1}
+USE_ADAPTIVE_TEMPERATURE = True
+TEMPERATURES = {'CC': 0.1, 'SC': 0.1, 'EC': 0.1, 'SQC': 0.1, "default": 0.01}
 # run with 0.1 to have good results!
 # 0.01 worse reward for CC, better SC
 
@@ -50,10 +50,10 @@ class MLPPolicy(nn.Module):
 class CNNPolicy(nn.Module):
     def __init__(self, output_size):
         super(CNNPolicy, self).__init__()
-        self.model = CustomCNN(state_dim=output_size)
+        self.model = CustomCNNExtraDim(state_dim=output_size)
 
-    def forward(self, input):
-        return F.softmax(self.model(input), dim=1)
+    def forward(self, input, label):
+        return F.softmax(self.model.forward(input, label), dim=1)
 
 
 class PolicyDistillationModel(BaseRLObject):
@@ -98,10 +98,11 @@ class PolicyDistillationModel(BaseRLObject):
         action = self.model.forward(observation).detach().cpu().numpy()
         return action
 
-    def getAction(self, observation, dones=None, delta=0, sample=False):
+    def getAction(self, observation, label=None, dones=None, delta=0, sample=False):
         """
         From an observation returns the associated action
         :param observation: (numpy int or numpy float)
+        :param label: (numpy int or numpy float)
         :param dones: ([bool])
         :param delta: (numpy float or float) The exploration noise applied to the policy, set to 0 for no noise.
         :return: (numpy float)
@@ -113,11 +114,16 @@ class PolicyDistillationModel(BaseRLObject):
             observation = np.transpose(observation, (0, 3, 2, 1))
         observation = th.from_numpy(observation).float().requires_grad_(False).to(self.device)
 
+        if label is not None:
+            label = th.from_numpy(label).float().requires_grad_(False).to(self.device)
+
+
         if sample:
             proba_actions = self.model.forward(observation).detach().cpu().numpy().flatten()
             return np.random.choice(range(len(proba_actions)), 1, p=proba_actions)
         else:
-            return [np.argmax(self.model.forward(observation).detach().cpu().numpy())]
+            return [np.argmax(self.model.forward(observation, label).detach().cpu().numpy())]
+
 
     def loss_fn_kd(self, outputs, teacher_outputs, labels=None, adaptive_temperature=False):
         """
@@ -158,6 +164,7 @@ class PolicyDistillationModel(BaseRLObject):
             cl_labels = training_data[CL_LABEL_KEY]
         else:
             cl_labels_st = None
+
 
         if args.distillation_training_set_size > 0:
             limit = args.distillation_training_set_size
@@ -290,11 +297,13 @@ class PolicyDistillationModel(BaseRLObject):
                         decoded_obs = self.srl_model.model.model.decode(state).to(self.device).detach()
                 else:
                     state = obs.detach()
-                pred_action = self.model.forward(state)
+                dict_str_labels = {'SC': 1, 'CC':2}
+                cl_labels_nn = th.Tensor([dict_str_labels[x] for x in cl_labels_st]).cuda().reshape(-1,1)
+                pred_action = self.model.forward(state, cl_labels_nn)
 
                 loss = self.loss_fn_kd(pred_action,
                                        actions_proba_st.float(),
-                                       labels=cl_labels_st, adaptive_temperature=USE_ADAPTIVE_TEMPERATURE)
+                                       labels=cl_labels_st, adaptive_temperature=False)
 
                 loss.backward()
                 if validation_mode:

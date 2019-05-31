@@ -277,7 +277,13 @@ def main():
     last_n_done = 0
     episode = 0
     for i in range(load_args.num_timesteps):
-        actions = method.getAction(obs, dones)
+        if env_kwargs['simple_continual_target']:
+            label = np.array([1.]).reshape(1,1)
+        elif env_kwargs['circular_continual_move']:
+            label = np.array([2.]).reshape(1,1)
+        else:
+            label = None
+        actions = method.getAction(obs, label, dones)
         obs, rewards, dones, _ = envs.step(actions)
         if using_custom_vec_env:
             obs = obs.reshape((1,) + obs.shape)
