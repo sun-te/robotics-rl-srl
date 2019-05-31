@@ -52,8 +52,9 @@ class CNNPolicy(nn.Module):
         super(CNNPolicy, self).__init__()
         self.model = CustomCNNExtraDim(state_dim=output_size)
 
-    def forward(self, input, label):
-        return F.softmax(self.model.forward(input, label), dim=1)
+    def forward(self, input):
+        pred_action, pred_label = self.model.forward(input)
+        return F.softmax(pred_action, dim=1), F.sigmoid(pred_label)
 
 
 class PolicyDistillationModel(BaseRLObject):
@@ -122,7 +123,7 @@ class PolicyDistillationModel(BaseRLObject):
             proba_actions = self.model.forward(observation).detach().cpu().numpy().flatten()
             return np.random.choice(range(len(proba_actions)), 1, p=proba_actions)
         else:
-            return [np.argmax(self.model.forward(observation, label).detach().cpu().numpy())]
+            return [np.argmax(self.model.forward(observation)[0].detach().cpu().numpy())]
 
 
     def loss_fn_kd(self, outputs, teacher_outputs, labels=None, adaptive_temperature=False):
@@ -145,6 +146,9 @@ class PolicyDistillationModel(BaseRLObject):
 
     def loss_mse(self, outputs, teacher_outputs):
         return (outputs - teacher_outputs).pow(2).sum(1).mean()
+
+    def loss_cross_entropy(self, pred_proba, gt_label):
+        return F.binary_cross_entropy(pred_proba, gt_label)
 
     def train(self, args, callback, env_kwargs=None, train_kwargs=None):
 
@@ -297,13 +301,22 @@ class PolicyDistillationModel(BaseRLObject):
                         decoded_obs = self.srl_model.model.model.decode(state).to(self.device).detach()
                 else:
                     state = obs.detach()
-                dict_str_labels = {'SC': 1, 'CC':2}
+                dict_str_labels = {'SC': 1, 'CC':0}
                 cl_labels_nn = th.Tensor([dict_str_labels[x] for x in cl_labels_st]).cuda().reshape(-1,1)
-                pred_action = self.model.forward(state, cl_labels_nn)
+                pred_action, pred_label = self.model.forward(state)
+                #import pdb
+                #pdb.set_trace()
 
                 loss = self.loss_fn_kd(pred_action,
                                        actions_proba_st.float(),
                                        labels=cl_labels_st, adaptive_temperature=False)
+
+
+                ### loss pred_label
+                loss_label = self.loss_cross_entropy(pred_label, cl_labels_nn)
+                loss = loss + loss_label
+                #print(loss_label)
+                #print(pred_label, cl_labels_nn)
 
                 loss.backward()
                 if validation_mode:
