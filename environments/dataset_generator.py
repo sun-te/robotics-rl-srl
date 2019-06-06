@@ -126,6 +126,7 @@ def env_thread(args, thread_num, partition=True):
     if args.run_policy in ["walker", "custom"]:
         if args.latest:
             args.log_dir = latestPath(args.log_custom_policy)
+            args.log_generative_model = latestPath(args.log_generative_model)
         else:
             args.log_dir = args.log_custom_policy
         args.render = args.display
@@ -187,7 +188,7 @@ def env_thread(args, thread_num, partition=True):
                 walker_path = walkerPath()
 
     if len(args.replay_generative_model) > 0:
-        srl_model = loadSRLModel(args.log_generative_model, th.cuda.is_available())
+        srl_model = loadSRLModel(args.log_generative_model+'srl_model.pth', th.cuda.is_available())
         srl_state_dim = srl_model.state_dim
         srl_model = srl_model.model.model
 
