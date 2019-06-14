@@ -7,12 +7,15 @@ import json
 import os
 import sys
 import time
+import subprocess
 from datetime import datetime
 from pprint import pprint
 
+import numpy as np
 import yaml
 from stable_baselines.common import set_global_seeds
 from visdom import Visdom
+from shutil import copyfile
 
 from environments.registry import registered_env
 from environments.srl_env import SRLGymEnv
@@ -35,9 +38,9 @@ ENV_NAME = ""
 PLOT_TITLE = ""
 EPISODE_WINDOW = 40  # For plotting moving average
 EVAL_TASK=['cc','sc','sqc']
-CROSS_EVAL = True
+CROSS_EVAL = False
 EPISODE_WINDOW_DISTILLATION_WIN = 20
-NEW_LR=0.001
+NEW_LR=0.0001
 
 
 viz = None
@@ -127,7 +130,7 @@ def callback(_locals, _globals):
     :param _locals: (dict)
     :param _globals: (dict)
     """
-    global win, win_smooth, win_episodes, win_crossEval, n_steps, viz, params_saved, best_mean_reward
+    global win, win_smooth, win_episodes, win_crossEval,n_steps, viz, params_saved, best_mean_reward
     # Create vizdom object only if needed
     if viz is None:
         viz = Visdom(port=VISDOM_PORT)
@@ -171,28 +174,44 @@ def callback(_locals, _globals):
             printGreen("Saving new best model")
             ALGO.save(LOG_DIR + ALGO_NAME + "_model.pkl", _locals)
 
-        if n_episodes >= 0:
 
-            # For every checkpoint, we create one directory for saving logs file (policy and run mean std)
-            if EPISODE_WINDOW_DISTILLATION_WIN > 0:
-                if n_episodes % EPISODE_WINDOW_DISTILLATION_WIN == 0:
-                    ALGO.save(LOG_DIR + ALGO_NAME + '_' + str(n_episodes) + "_model.pkl", _locals)
-                    if CROSS_EVAL:  # If we want to do the cross evaluation after the training
-                        eps_path = LOG_DIR + "model_" + str(n_episodes)
-                        try:
-                            os.mkdir(LOG_DIR + "model_" + str(n_episodes))
-                        except OSError:
-                            pass
-                            #print("Creation of the directory {} failed".format(eps_path))
 
-                        ALGO.save("{}/{}".format(eps_path, ALGO_NAME + "_model.pkl"), _locals)
-                        try:
-                            if 'env' in _locals:
-                                _locals['env'].save_running_average(eps_path)
-                            else:
-                                _locals['self'].env.save_running_average(eps_path)
-                        except AttributeError:
-                            pass
+        #For every checkpoint, we create one directory for saving logs file (policy and run mean std)
+        if n_episodes % EPISODE_WINDOW_DISTILLATION_WIN == 0:
+            ALGO.save(LOG_DIR + ALGO_NAME +'_' + str(n_episodes)+ "_model.pkl", _locals)
+            if(CROSS_EVAL):#If we want to do the cross evaluation after the training
+                eps_path = LOG_DIR + "model_"+ str(n_episodes)
+                try:
+                    os.mkdir(LOG_DIR + "model_"+ str(n_episodes))
+                except OSError:
+                    print("Creation of the directory {} failed".format(eps_path))
+
+                ALGO.save("{}/{}".format( eps_path, ALGO_NAME + "_model.pkl"), _locals)
+                try:
+                    if 'env' in _locals:
+                        _locals['env'].save_running_average(eps_path)
+                    else:
+                        _locals['self'].env.save_running_average(eps_path)
+                except AttributeError:
+                    pass
+        # if n_episodes % (EPISODE_WINDOW * 10) ==0:
+        #     copyfile(LOG_DIR + '/args.json', eps_path + '/args.json')
+        #     copyfile(LOG_DIR + '/env_globals.json', eps_path + '/env_globals.json')
+        #     for task_label in ['-sc', '-cc']:
+        #         for seed_i in range(2):
+        #             command_line_enjoy_student = ['python', '-m', 'replay.enjoy_baselines', '--num-timesteps', '251',
+        #                                       '--log-dir', eps_path+'/', task_label, "--seed", str(seed_i)]
+        #             ok = subprocess.check_output(command_line_enjoy_student)
+        #             ok = ok.decode('utf-8')
+        #             str_before = "Mean reward: "
+        #             str_after = "\npybullet"
+        #             idx_before = ok.find(str_before) + len(str_before)
+        #             idx_after = ok.find(str_after)
+        #             seed_reward = float(ok[idx_before: idx_after])
+        #
+        #         print("current rewards {} at episode {} with random seed: {} for task {}".format(
+        #             np.mean(seed_reward), n_episodes, 0, task_label))
+
 
     # Plots in visdom
     if viz and (n_steps + 1) % LOG_INTERVAL == 0:
@@ -201,6 +220,9 @@ def callback(_locals, _globals):
                                    is_es=is_es)
         win_episodes = episodePlot(viz, win_episodes, LOG_DIR, ENV_NAME, ALGO_NAME, window=EPISODE_WINDOW,
                                    title=PLOT_TITLE + " [Episodes]", is_es=is_es)
+        # if CROSS_EVAL:
+        #     win_crossEval= episodesEvalPlot(viz,win_crossEval,LOG_DIR,ENV_NAME,EVAL_TASK,
+        #                                     title=PLOT_TITLE + " [Cross Evaluation]")
     n_steps += 1
     return True
 
@@ -265,8 +287,10 @@ def main():
                         help='A cross evaluation from the latest stored model to all tasks')
     parser.add_argument('--eval-episode-window', type=int, default=400, metavar='N',
                         help='Episode window for saving each policy checkpoint for future distillation(default: 100)')
-    parser.add_argument('--new-lr', type=float, default=1.e-4,
+    parser.add_argument('--new-lr',type = float , default =1.e-4 ,
                         help="New learning rate ratio to train a pretrained agent")
+    parser.add_argument('--ewc-weight', type=float, default=1.e4,
+                        help="The weight we attribute for the old tasks")
 
     # Ignore unknown args for now
     args, unknown = parser.parse_known_args()
@@ -307,7 +331,7 @@ def main():
     ALGO_NAME = args.algo
     VISDOM_PORT = args.port
     EPISODE_WINDOW = args.episode_window
-    MIN_EPISODES_BEFORE_SAVE = args.min_episodes_save
+    MIN_EPISODES_BEFORE_SAVE = 0#args.min_episodes_save
     CROSS_EVAL = args.perform_cross_evaluation_cc
     EPISODE_WINDOW_DISTILLATION_WIN = args.eval_episode_window
     NEW_LR =args.new_lr
@@ -366,7 +390,6 @@ def main():
     globals_env_param = sys.modules[env_class.__module__].getGlobals()
 
     super_class = registered_env[args.env][1]
-
     # recursive search through all the super classes of the asked environment, in order to get all the arguments.
     rec_super_class_lookup = {dict_class: dict_super_class for _, (dict_class, dict_super_class, _, _) in
                               registered_env.items()}
@@ -396,13 +419,18 @@ def main():
     # Get the hyperparameter, if given (Hyperband)
     hyperparams = {param.split(":")[0]: param.split(":")[1] for param in args.hyperparam}
     hyperparams = algo.parserHyperParam(hyperparams)
-    
+
+
     if args.load_rl_model_path is not None:
         # use a small learning rate
         print("use a small learning rate: {:f}".format(NEW_LR))
         hyperparams["learning_rate"] = lambda f: f * NEW_LR
-        
+        hyperparams["ewc_weight"] = args.ewc_weight
+
+
     # Train the agent
+    # episodeEval(LOG_DIR,EVAL_TASK)
+    # return
     if args.load_rl_model_path is not None:
         algo.setLoadPath(args.load_rl_model_path)
     algo.train(args, callback, env_kwargs=env_kwargs, train_kwargs=hyperparams)

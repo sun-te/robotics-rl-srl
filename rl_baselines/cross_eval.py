@@ -90,6 +90,9 @@ if __name__ == '__main__':
                         ,help='RL algo to use')
     parser.add_argument('--num-iteration', type=int, default=5,
                         help='number of time each algorithm should be run the eval (N seeds).')
+    parser.add_argument('--scheduler',type = int, nargs='+', default=[1,1] ,
+                        help='A step scheduler for the evaluation')
+
     args, unknown = parser.parse_known_args()
 
 
@@ -98,15 +101,20 @@ if __name__ == '__main__':
 
     episodes, policy_paths = allPolicyFiles(log_dir)
     index_to_begin =0
-
+    # The interval to skip, how many times we skip the evaluate
+    # For example: if interval = 4 and episode, then the evaluation be be performed each 4* saved_checkpoint_episode
+    interval_len = args.scheduler[1]
+    episode_schedule = args.scheduler[0]
 
 
     #To verify if the episodes have been evaluated before
     if(os.path.isfile(args.log_dir+'/eval.pkl')):
         with open(args.log_dir+'/eval.pkl', "rb") as file:
             rewards = pickle.load(file)
+
         max_eps = max(np.array(rewards['episode']).astype(int))
         index_to_begin = episodes.astype(int).tolist().index(max_eps)+1
+
 
     else:
         task_labels = ['cc', 'sc']
@@ -127,7 +135,10 @@ if __name__ == '__main__':
     run_mean = [0,0]
 
 
-    for k in range(index_to_begin, len(episodes) ):
+    for k in range(index_to_begin, len(episodes) ,interval_len):
+        # if(interval_len > 1 and int(episodes[k])>=episode_schedule):
+        #     k += interval_len-1
+        printGreen("Evaluation for episode: {}".format(episodes[k]))
         increase_interval = True
 
         model_path=policy_paths[k]

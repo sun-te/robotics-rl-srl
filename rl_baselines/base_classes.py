@@ -3,7 +3,7 @@ import pickle
 import re
 from stable_baselines.common.policies import CnnPolicy, CnnLstmPolicy, CnnLnLstmPolicy, MlpPolicy, MlpLstmPolicy, \
     MlpLnLstmPolicy
-
+from rl_baselines.progressive_nn.ppo2_model import ProgressiveMlpPolicy
 from rl_baselines.utils import createEnvs
 
 
@@ -128,9 +128,9 @@ class StableBaselinesRLObject(BaseRLObject):
         assert self.model is not None, "Error: must train or load model before use"
 
         episode = os.path.basename(save_path).split('_')[-2]
-        if bool(re.search('[a-z]', episode)):
-            # That means this is not a episode, it is a algo name
-            model_save_name = self.name + ".pkl"
+        if(bool(re.search('[a-z]', episode))):
+            #That means this is not a episode, it is a algo name
+            model_save_name = self.name +".pkl"
         else:
             model_save_name = self.name + '_' + episode + ".pkl"
 
@@ -143,9 +143,10 @@ class StableBaselinesRLObject(BaseRLObject):
         with open(save_path, "wb") as f:
             pickle.dump(save_param, f)
 
+
     def setLoadPath(self, load_path):
         """
-        Set the path to later load the parameters of a trained rl model
+        Load the only the parameters of the neuro-network model from a path
         :param load_path: (str)
         :return: None
         """
@@ -166,11 +167,12 @@ class StableBaselinesRLObject(BaseRLObject):
         loaded_model.__dict__ = {**loaded_model.__dict__, **save_param}
 
         episode = os.path.basename(load_path).split('_')[-2]
-        if bool(re.search('[a-z]', episode)):
-            # That means this is not a episode, it is a algo name
-            model_save_name = loaded_model.name + ".pkl"
+        if(bool(re.search('[a-z]', episode))):
+            #That means this is not a episode, it is a algo name
+            model_save_name = loaded_model.name +".pkl"
         else:
-            model_save_name = loaded_model.name + '_' + episode + ".pkl"
+            model_save_name = loaded_model.name +'_' + episode + ".pkl"
+
 
         loaded_model.model = loaded_model.model_class.load(os.path.dirname(load_path) + "/" + model_save_name)
         loaded_model.states = loaded_model.model.initial_state
@@ -250,16 +252,17 @@ class StableBaselinesRLObject(BaseRLObject):
         self.ob_space = envs.observation_space
         self.ac_space = envs.action_space
 
-        policy_fn = {'cnn': "CnnPolicy",
-                     'cnn-lstm': "CnnLstmPolicy",
-                     'cnn-lnlstm': "CnnLnLstmPolicy",
-                     'mlp': "MlpPolicy",
-                     'lstm': "MlpLstmPolicy",
-                     'lnlstm': "MlpLnLstmPolicy"}[args.policy]
+        policy_fn = {'cnn': CnnPolicy,
+                     'cnn-lstm': CnnLstmPolicy,
+                     'cnn-lnlstm': CnnLnLstmPolicy,
+                     'mlp': MlpPolicy,
+                     'lstm': MlpLstmPolicy,
+                     'lnlstm': MlpLnLstmPolicy,
+                     'progressive':ProgressiveMlpPolicy}[args.policy]
         if self.load_rl_model_path is not None:
             print("Load trained model from the path: ", self.load_rl_model_path)
             self.model = self.model_class.load(self.load_rl_model_path, envs, **train_kwargs)
         else:
-            self.model = self.model_class(policy_fn, envs, **train_kwargs)
+            self.model = self.model_class(ProgressiveMlpPolicy, envs, **train_kwargs,tensorboard_log="/home/tete/train")
         self.model.learn(total_timesteps=args.num_timesteps, seed=args.seed, callback=callback)
         envs.close()
