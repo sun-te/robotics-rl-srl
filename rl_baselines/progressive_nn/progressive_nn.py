@@ -11,6 +11,7 @@ from rl_baselines.base_classes import StableBaselinesRLObject
 from rl_baselines.progressive_nn.utils import *
 from rl_baselines import AlgoType, ActionType
 from rl_baselines.progressive_nn.ppo2_model import ProgPPO2
+from rl_baselines.rl_algorithm.ppo2 import PPO2Model
 
 def loadConfigAndSetup(log_dir):
     """
@@ -22,9 +23,10 @@ def loadConfigAndSetup(log_dir):
     assert "ppo2" in log_dir or "prnn" in log_dir
     if ("ppo2" in log_dir):
         algo_name = "ppo2"
+        algo_class = PPO2Model
     elif ("prnn" in log_dir):
         algo_name = "prnn"
-
+        algo_class = ProgressiveNN
     if log_dir[-3:] != 'pkl':
         load_path = "{}/{}.pkl".format(log_dir, algo_name)
     else:
@@ -69,7 +71,7 @@ def loadConfigAndSetup(log_dir):
             assert os.path.isfile(env_globals['srl_model_path']), "{} does not exist".format(env_globals['srl_model_path'])
             srl_model_path = env_globals['srl_model_path']
             env_kwargs["srl_model_path"] = srl_model_path
-    return train_args, load_path, srl_model_path, env_kwargs, algo_name
+    return algo_class, train_args, load_path, srl_model_path, env_kwargs, algo_name
 
 
 
@@ -88,7 +90,7 @@ class ProgressiveNN(StableBaselinesRLObject):
     SAVE_INTERVAL = 1  # Save RL model every 1 steps
 
     def __init__(self):
-        super(ProgressiveNN, self).__init__(name="ppo2", model_class=ProgPPO2)
+        super(ProgressiveNN, self).__init__(name="prnn", model_class=ProgPPO2)
 
 
     def customArguments(self, parser):
@@ -107,7 +109,7 @@ class ProgressiveNN(StableBaselinesRLObject):
         """
         previous_models = []
         for path in previous_model_path:
-            train_args, load_path, srl_model_path, env_kwargs, algo_name = loadConfigAndSetup(path)
+            algo_class, train_args, load_path, srl_model_path, env_kwargs, algo_name = loadConfigAndSetup(path)
             log_dir ="/tmp/gym/test/"+"{}/{}/".format(algo_name, datetime.now().strftime("%y-%m-%d_%Hh%M_%S"))
             os.makedirs(log_dir, exist_ok=True)
 
@@ -117,7 +119,6 @@ class ProgressiveNN(StableBaselinesRLObject):
             # Question: if we load the model, we should load which environment, the current one or the previous one???
             # If current one, may the model forget the previous task?
             envs = self.makeEnv(algo_args, env_kwargs, load_path_normalise=path)
-
             model = self.model_class.load(load_path,envs)
             previous_models.append(model)
         return tuple(previous_models)

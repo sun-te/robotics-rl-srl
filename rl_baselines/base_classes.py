@@ -245,8 +245,11 @@ class StableBaselinesRLObject(BaseRLObject):
             else:
                 args.policy = "cnn-" + args.policy
         else:
-            if args.policy == "feedforward":
+            if args.policy == "feedforward" and args.algo == "prnn":
+                args.policy = "progressive"
+            elif args.policy == "feedforward":
                 args.policy = "mlp"
+
 
         self.policy = args.policy
         self.ob_space = envs.observation_space
@@ -259,10 +262,11 @@ class StableBaselinesRLObject(BaseRLObject):
                      'lstm': MlpLstmPolicy,
                      'lnlstm': MlpLnLstmPolicy,
                      'progressive':ProgressiveMlpPolicy}[args.policy]
+
         if self.load_rl_model_path is not None:
             print("Load trained model from the path: ", self.load_rl_model_path)
             self.model = self.model_class.load(self.load_rl_model_path, envs, **train_kwargs)
         else:
-            self.model = self.model_class(ProgressiveMlpPolicy, envs, **train_kwargs,tensorboard_log="/home/tete/train")
+            self.model = self.model_class(policy_fn, envs, **train_kwargs,tensorboard_log="/home/tete/train/")
         self.model.learn(total_timesteps=args.num_timesteps, seed=args.seed, callback=callback)
         envs.close()

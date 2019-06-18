@@ -1,4 +1,5 @@
 import pdb
+from pdb import set_trace
 import numpy as np
 import tensorflow as tf
 import sys
@@ -13,6 +14,9 @@ from stable_baselines.common import tf_util, SetVerbosity
 from stable_baselines.common.policies import nature_cnn, ActorCriticPolicy, LstmPolicy
 from stable_baselines.a2c.utils import ortho_init
 from stable_baselines import PPO2
+
+
+from srl_zoo.utils import printRed,printGreen,printYellow
 
 
 def linear(input_tensor, scope, n_hidden, *, init_scale=1.0, init_bias=0.0):
@@ -33,10 +37,37 @@ def linear(input_tensor, scope, n_hidden, *, init_scale=1.0, init_bias=0.0):
         return tf.matmul(input_tensor, weight) + bias
 
 
-def mlp_extractor(flat_observations, net_arch, act_fun):
+def prog_mlp_extractor(flat_observations, net_arch, act_fun, prev_cols=()):
     latent = flat_observations
     policy_only_layers = []  # Layer sizes of the network that only belongs to the policy network
     value_only_layers = []  # Layer sizes of the network that only belongs to the value network
+
+    printRed(prev_cols)
+    # Test purpose
+    #
+    # if(len(prev_cols)>0):
+    #     model = prev_cols[0]
+    #     sess = model.sess
+    #     graph =sess.graph
+    #
+    #     model_variables = graph.get_operations()
+    #     train_ops = []
+    #     for op in model_variables:
+    #         if("loss" not in str(op.name) and "model" in str(op.name) and "add" in str(op.name)):
+    #             print(op.name)
+    #             train_ops.append(op.values())
+    #             # try:
+    #             #     tmp = sess.run(op.values())
+    #             #     if(tmp !=None):
+    #             #         print(op.name,op.values(), tmp[0].shape)
+    #             # except:
+    #             #     print("feed_dict no compitible", op.name)
+    #     #model / pi_fc0 / w: 0
+
+
+
+
+
 
     # Iterate through the shared layers and build the shared parts of the network
     for idx, layer in enumerate(net_arch):
@@ -61,19 +92,26 @@ def mlp_extractor(flat_observations, net_arch, act_fun):
         if pi_layer_size is not None:
             assert isinstance(pi_layer_size, int), "Error: net_arch[-1]['pi'] must only contain integers."
             latent_policy = (linear(latent_policy, "pi_fc{}".format(idx), pi_layer_size, init_scale=np.sqrt(2)))
-            with tf.variable_scope("pi_fc_res_{}".format(idx)):
-                latent_policy = act_fun(latent_policy + 2)
+            print(latent_policy.name)
+            with tf.variable_scope("pi_res_{}".format(idx)):
+                try:
+                    for i in range(len(prev_cols)):
+                        latent_policy += prev_cols[latent_policy.name]
+                except:
+                    printRed("Exception: residual insertion from previous model failed.")
+            latent_policy = act_fun(latent_policy)
         if vf_layer_size is not None:
             assert isinstance(vf_layer_size, int), "Error: net_arch[-1]['vf'] must only contain integers."
             latent_value = (linear(latent_value, "vf_fc{}".format(idx), vf_layer_size, init_scale=np.sqrt(2)))
-            with tf.variable_scope("vf_fc_res_{}".format(idx)):
+            with tf.variable_scope("vf_res_{}".format(idx)):
                 latent_value = act_fun(latent_value + 2)
 
     return latent_policy, latent_value
 
+#model/pi_fc1/add:0
 
 class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
-    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, layers=None, net_arch=None,
+    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, prev_cols=(), reuse=False, layers=None, net_arch=None,
                  act_fun=tf.tanh, cnn_extractor=nature_cnn, feature_extraction="cnn", **kwargs):
         super(ProgressiveFeedForwardPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps,
                                                            n_batch, reuse=reuse, scale=(feature_extraction == "cnn"))
@@ -96,7 +134,7 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
             if feature_extraction == "cnn":
                 pi_latent = vf_latent = cnn_extractor(self.processed_obs, **kwargs)
             else:    # construction of the model, mlp
-                pi_latent, vf_latent = mlp_extractor(tf.layers.flatten(self.processed_obs), net_arch, act_fun)
+                pi_latent, vf_latent = prog_mlp_extractor(tf.layers.flatten(self.processed_obs), net_arch, act_fun, prev_cols)
 
             self.value_fn = linear(vf_latent, 'vf', 1)
             self.proba_distribution, self.policy, self.q_value = \
@@ -104,6 +142,25 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
 
         self.initial_state = None
         self._setup_init()
+
+    @staticmethod
+    def _kwargs_check(feature_extraction, kwargs):
+        """
+        Ensure that the user is not passing wrong keywords
+        when using policy_kwargs.
+
+        :param feature_extraction: (str)
+        :param kwargs: (dict)
+        """
+        # When using policy_kwargs parameter on model creation,
+        # all keywords arguments must be consumed by the policy constructor except
+        # the ones for the cnn_extractor network (cf nature_cnn()), where the keywords arguments
+        # are not passed explicitely (using **kwargs to forward the arguments)
+        # that's why there should be not kwargs left when using the mlp_extractor
+        # (in that case the keywords arguments are passed explicitely)
+        if feature_extraction == 'mlp' and len(kwargs) > 1:
+            raise ValueError("Unknown keywords for policy: {}".format(kwargs))
+
 
     def step(self, obs, state=None, mask=None, deterministic=False):
         if deterministic:
@@ -122,8 +179,8 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
 
 
 class ProgressiveMlpPolicy(ProgressiveFeedForwardPolicy):
-    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
-        super(ProgressiveMlpPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
+    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, prev_cols=(), reuse=False, **_kwargs):
+        super(ProgressiveMlpPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, prev_cols, reuse,
                                         feature_extraction="mlp", **_kwargs)
 
 
@@ -145,7 +202,7 @@ class ProgPPO2(PPO2):
         :param prev_cols: The previous pre-trained model, the progressive model
         """
         super(ProgPPO2, self).__init__(
-            policy=policy, env=env, verbose=verbose, _init_setup_model=_init_setup_model, policy_kwargs=policy_kwargs)
+            policy=policy, env=env, verbose=verbose, _init_setup_model=False, policy_kwargs=policy_kwargs)
         self.learning_rate = learning_rate
         self.cliprange = cliprange
         self.n_steps = n_steps
@@ -188,9 +245,10 @@ class ProgPPO2(PPO2):
         self.episode_reward = None
 
         if _init_setup_model:
-            self.setup_model()
+            self.setup_progressive_model()
 
-    def setup_model(self):
+    def setup_progressive_model(self):
+
         with SetVerbosity(self.verbose):
 
             assert issubclass(self.policy, ActorCriticPolicy), "Error: the input policy for the PPO2 model must be " \
@@ -217,12 +275,13 @@ class ProgPPO2(PPO2):
                     n_batch_train = self.n_batch // self.nminibatches
 
                 act_model = self.policy(self.sess, self.observation_space, self.action_space, self.n_envs, 1,
-                                        n_batch_step, reuse=False, **self.policy_kwargs)
+                                        n_batch_step, prev_cols=self.prev_cols, reuse=False, **self.policy_kwargs)
 
                 with tf.variable_scope("train_model", reuse=True, custom_getter=tf_util.outer_scope_getter("train_model")):
 
                     train_model = self.policy(self.sess, self.observation_space, self.action_space,
                                               self.n_envs // self.nminibatches, self.n_steps, n_batch_train,
+                                              prev_cols=self.prev_cols,
                                               reuse=True, **self.policy_kwargs)
 
                 with tf.variable_scope("loss", reuse=False):
@@ -306,3 +365,113 @@ class ProgPPO2(PPO2):
                 tf.global_variables_initializer().run(session=self.sess)  # pylint: disable=E1101
 
                 self.summary = tf.summary.merge_all()
+
+    def residualBlock(self, obs):
+
+        res_tensor_name = []
+        res_tensor_value = {}
+        graph = self.graph
+        all_operations = graph.get_operations()
+        for ops in all_operations:
+            name = ops.name
+            if (("loss"not in name) and ("train_model/model/" in name) and ("add" in name) and "res" not in name ):
+                res_tensor_name.append(name)
+                res_tensor_value[name] = []
+
+        for model in self.prev_cols:
+            sess = model.sess
+            prev_graph = sess.graph
+            feed_dict = {prev_graph.get_operation_by_name('train_model/input/Ob').values(): obs}
+            for name in res_tensor_name:
+                printRed(name)
+                tensor = prev_graph.get_operation_by_name(name).values()
+                try:
+                    res_tensor_value[name].append((sess.run(tf.squeeze(tensor), feed_dict)))
+                except:
+                    tmp = sess.run(tensor, feed_dict)
+                    printRed(tmp)
+                    set_trace()
+                for k in res_tensor_value.keys(): print(type(res_tensor_value[k][0]))
+            set_trace()
+
+        if (len(self.prev_cols) > 0):
+            model = self.prev_cols[0]
+            sess = model.sess
+            graph = sess.graph
+
+            tensor = graph.get_operation_by_name('model/vf_fc0/add').values()
+            feed_dict = {graph.get_operation_by_name('input/Ob').values(): obs}
+            set_trace()
+
+    def _train_step(self, learning_rate, cliprange, obs, returns, masks, actions, values, neglogpacs, update,
+                    writer, states=None):
+        """
+        Training of PPO2 Algorithm
+
+        :param learning_rate: (float) learning rate
+        :param cliprange: (float) Clipping factor
+        :param obs: (np.ndarray) The current observation of the environment
+        :param returns: (np.ndarray) the rewards
+        :param masks: (np.ndarray) The last masks for done episodes (used in recurent policies)
+        :param actions: (np.ndarray) the actions
+        :param values: (np.ndarray) the values
+        :param neglogpacs: (np.ndarray) Negative Log-likelihood probability of Actions
+        :param update: (int) the current step iteration
+        :param writer: (TensorFlow Summary.writer) the writer for tensorboard
+        :param states: (np.ndarray) For recurrent policies, the internal state of the recurrent model
+        :return: policy gradient loss, value function loss, policy entropy,
+                approximation of kl divergence, updated clipping range, training update operation
+        """
+        advs = returns - values
+        advs = (advs - advs.mean()) / (advs.std() + 1e-8)
+        td_map = {self.train_model.obs_ph: obs, self.action_ph: actions, self.advs_ph: advs, self.rewards_ph: returns,
+                  self.learning_rate_ph: learning_rate, self.clip_range_ph: cliprange,
+                  self.old_neglog_pac_ph: neglogpacs, self.old_vpred_ph: values}
+        if states is not None:
+            td_map[self.train_model.states_ph] = states
+            td_map[self.train_model.masks_ph] = masks
+
+        if states is None:
+            update_fac = self.n_batch // self.nminibatches // self.noptepochs + 1
+        else:
+            update_fac = self.n_batch // self.nminibatches // self.noptepochs // self.n_steps + 1
+
+
+        self.residualBlock(obs)
+
+        if writer is not None:
+            # run loss backprop with summary, but once every 10 runs save the metadata (memory, compute time, ...)
+            if self.full_tensorboard_log and (1 + update) % 10 == 0:
+                run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                run_metadata = tf.RunMetadata()
+                summary, policy_loss, value_loss, policy_entropy, approxkl, clipfrac, _ = self.sess.run(
+                    [self.summary, self.pg_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac, self._train],
+                    td_map, options=run_options, run_metadata=run_metadata)
+                writer.add_run_metadata(run_metadata, 'step%d' % (update * update_fac))
+            else:
+                summary, policy_loss, value_loss, policy_entropy, approxkl, clipfrac, _ = self.sess.run(
+                    [self.summary, self.pg_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac, self._train],
+                    td_map)
+            writer.add_summary(summary, (update * update_fac))
+        else:
+            policy_loss, value_loss, policy_entropy, approxkl, clipfrac, _ = self.sess.run(
+                [self.pg_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac, self._train], td_map)
+
+
+        # ### study baselines
+        # graph =self.sess.graph
+        # model_variables =graph.get_operations()
+        # train_ops =[]
+        # for op in model_variables:
+        #     if("loss" not in str(op.name) and "Tanh" in str(op.name)):
+        #         #print(op.name)
+        #         train_ops.append(op)
+        #         try:
+        #             tmp = self.sess.run(op.values(),td_map)
+        #             if(tmp !=None):
+        #                 print(op.name,op.values(), tmp[0].shape)
+        #         except:
+        #             print("feed_dict no compitible", op.name)
+        # import pdb
+
+        return policy_loss, value_loss, policy_entropy, approxkl, clipfrac
