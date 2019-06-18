@@ -118,14 +118,20 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
                 warnings.warn("The new `net_arch` parameter overrides the deprecated `layers` parameter!",
                               DeprecationWarning)
         # if none, then use two networks for policy and the value function
-
+        self.dict_res_tensor_ph = {}
         if net_arch is None:
             if layers is None:
                 layers = [64, 64]
             net_arch = [dict(vf=layers, pi=layers)]
-            with tf.variable_scope("res_input",reuse=False):
 
-                tf.placeholder(dtype=ob_space.dtype, name="res", shape=[None])
+
+
+            with tf.variable_scope("res_input",reuse=False):
+                for name in tensor_name:
+                    # TODO, we need both name and the shape, only the architechture can not save you
+                    # TODO: or esle, only take the known part, just specific to this network
+                    self.dict_res_tensor_ph[name] = \
+                        tf.placeholder(dtype=ob_space.dtype, name="res_"+name, shape=[None, ])
 
         with tf.variable_scope("model", reuse=reuse):
             if feature_extraction == "cnn":
@@ -372,7 +378,9 @@ class ProgPPO2(PPO2):
     def getResidualTensorName(self):
         res_tensor_name = []
         res_tensor_value = {}
-        graph = self.graph
+        if(len(self.prev_cols)==0):
+            return "", ""
+        graph = self.prev_cols[0].sess.graph
         all_operations = graph.get_operations()
         for ops in all_operations:
             name = ops.name
