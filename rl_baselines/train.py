@@ -265,6 +265,8 @@ def main():
                         help='load the latest learned model (location:srl_zoo/logs/DatasetName/)')
     parser.add_argument('--load-rl-model-path', type=str, default=None,
                         help="load the trained RL model, should be with the same algorithm type")
+    parser.add_argument('--previous-models', type=str, nargs='+', default=[],
+                        help='Paths to previous pre-trained models. Previous parameters.')
     parser.add_argument('-sc', '--simple-continual', action='store_true', default=False,
                         help='Simple red square target for task 1 of continual learning scenario. ' +
                              'The task is: robot should reach the target.')
@@ -364,7 +366,7 @@ def main():
     env_kwargs["random_target"] = args.random_target
 
     # If in simple continual scenario, then the target should be initialized randomly.
-    if args.simple_continual is True:
+    if args.simple_continual  is True:
         env_kwargs["random_target"] = True
 
     # Allow up action

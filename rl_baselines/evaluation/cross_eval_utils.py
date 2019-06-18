@@ -37,7 +37,7 @@ def loadConfigAndSetup(log_dir):
     train_args = json.load(open(log_dir + "args.json", 'r'))
     env_kwargs = {
         "renders":False,
-        "shape_reward": False,  #TODO, since we dont use simple target, we should elimanate this choice?
+        "shape_reward": train_args["shape_reward"],
         "action_joints": train_args["action_joints"],
         "is_discrete": not train_args["continuous_actions"],
         "random_target": train_args.get('random_target', False),

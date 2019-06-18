@@ -1,11 +1,18 @@
+import pdb
+import numpy as np
+import tensorflow as tf
+import sys
+import multiprocessing
+
+
 from itertools import zip_longest
 import warnings
-from stable_baselines.common.policies import  nature_cnn, ActorCriticPolicy
-import tensorflow as tf
+
+
+from stable_baselines.common import tf_util, SetVerbosity
+from stable_baselines.common.policies import nature_cnn, ActorCriticPolicy, LstmPolicy
 from stable_baselines.a2c.utils import ortho_init
 from stable_baselines import PPO2
-import numpy as np
-
 
 
 def linear(input_tensor, scope, n_hidden, *, init_scale=1.0, init_bias=0.0):
@@ -64,11 +71,12 @@ def mlp_extractor(flat_observations, net_arch, act_fun):
 
     return latent_policy, latent_value
 
+
 class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, layers=None, net_arch=None,
                  act_fun=tf.tanh, cnn_extractor=nature_cnn, feature_extraction="cnn", **kwargs):
-        super(ProgressiveFeedForwardPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse,
-                                                scale=(feature_extraction == "cnn"))
+        super(ProgressiveFeedForwardPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps,
+                                                           n_batch, reuse=reuse, scale=(feature_extraction == "cnn"))
 
         self._kwargs_check(feature_extraction, kwargs)
 
@@ -78,7 +86,7 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
             if net_arch is not None:
                 warnings.warn("The new `net_arch` parameter overrides the deprecated `layers` parameter!",
                               DeprecationWarning)
-        #if none, then use two networks for policy and the value function
+        # if none, then use two networks for policy and the value function
         if net_arch is None:
             if layers is None:
                 layers = [64, 64]
@@ -87,7 +95,7 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
         with tf.variable_scope("model", reuse=reuse):
             if feature_extraction == "cnn":
                 pi_latent = vf_latent = cnn_extractor(self.processed_obs, **kwargs)
-            else: # construction of the model, mlp
+            else:    # construction of the model, mlp
                 pi_latent, vf_latent = mlp_extractor(tf.layers.flatten(self.processed_obs), net_arch, act_fun)
 
             self.value_fn = linear(vf_latent, 'vf', 1)
@@ -113,8 +121,188 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
         return self.sess.run(self._value, {self.obs_ph: obs})
 
 
-
 class ProgressiveMlpPolicy(ProgressiveFeedForwardPolicy):
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
         super(ProgressiveMlpPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
                                         feature_extraction="mlp", **_kwargs)
+
+
+
+
+
+
+
+
+
+
+class ProgPPO2(PPO2):
+    def __init__(self, policy, env, prev_cols=(),gamma=0.99, n_steps=128, ent_coef=0.01, learning_rate=2.5e-4, vf_coef=0.5,
+                 max_grad_norm=0.5, lam=0.95, nminibatches=4, noptepochs=4, cliprange=0.2, verbose=0,
+                 tensorboard_log=None, _init_setup_model=True, policy_kwargs=None,
+                 full_tensorboard_log=False):
+        """
+        Parameters could be referred to those of PPO2 in stable_baselines
+        :param prev_cols: The previous pre-trained model, the progressive model
+        """
+        super(ProgPPO2, self).__init__(
+            policy=policy, env=env, verbose=verbose, _init_setup_model=_init_setup_model, policy_kwargs=policy_kwargs)
+        self.learning_rate = learning_rate
+        self.cliprange = cliprange
+        self.n_steps = n_steps
+        self.ent_coef = ent_coef
+        self.vf_coef = vf_coef
+        self.max_grad_norm = max_grad_norm
+        self.gamma = gamma
+        self.lam = lam
+        self.nminibatches = nminibatches
+        self.noptepochs = noptepochs
+        self.tensorboard_log = tensorboard_log
+        self.full_tensorboard_log = full_tensorboard_log
+        self.prev_cols = prev_cols
+
+        self.graph = None
+        self.sess = None
+        self.action_ph = None
+        self.advs_ph = None
+        self.rewards_ph = None
+        self.old_neglog_pac_ph = None
+        self.old_vpred_ph = None
+        self.learning_rate_ph = None
+        self.clip_range_ph = None
+        self.entropy = None
+        self.vf_loss = None
+        self.pg_loss = None
+        self.approxkl = None
+        self.clipfrac = None
+        self.params = None
+        self._train = None
+        self.loss_names = None
+        self.train_model = None
+        self.act_model = None
+        self.step = None
+        self.proba_step = None
+        self.value = None
+        self.initial_state = None
+        self.n_batch = None
+        self.summary = None
+        self.episode_reward = None
+
+        if _init_setup_model:
+            self.setup_model()
+
+    def setup_model(self):
+        with SetVerbosity(self.verbose):
+
+            assert issubclass(self.policy, ActorCriticPolicy), "Error: the input policy for the PPO2 model must be " \
+                                                               "an instance of common.policies.ActorCriticPolicy."
+
+            self.n_batch = self.n_envs * self.n_steps
+
+            n_cpu = multiprocessing.cpu_count()
+            if sys.platform == 'darwin':
+                n_cpu //= 2
+
+            self.graph = tf.Graph()
+            with self.graph.as_default():
+                self.sess = tf_util.make_session(num_cpu=n_cpu, graph=self.graph)
+
+                n_batch_step = None
+                n_batch_train = None
+
+                # TODO: update the prnn for lstm policy
+                if issubclass(self.policy, LstmPolicy):
+                    assert self.n_envs % self.nminibatches == 0, "For recurrent policies, "\
+                        "the number of environments run in parallel should be a multiple of nminibatches."
+                    n_batch_step = self.n_envs
+                    n_batch_train = self.n_batch // self.nminibatches
+
+                act_model = self.policy(self.sess, self.observation_space, self.action_space, self.n_envs, 1,
+                                        n_batch_step, reuse=False, **self.policy_kwargs)
+
+                with tf.variable_scope("train_model", reuse=True, custom_getter=tf_util.outer_scope_getter("train_model")):
+
+                    train_model = self.policy(self.sess, self.observation_space, self.action_space,
+                                              self.n_envs // self.nminibatches, self.n_steps, n_batch_train,
+                                              reuse=True, **self.policy_kwargs)
+
+                with tf.variable_scope("loss", reuse=False):
+                    #action placeholder
+                    self.action_ph = train_model.pdtype.sample_placeholder([None], name="action_ph")
+                    #advantages placeholder
+                    self.advs_ph = tf.placeholder(tf.float32, [None], name="advs_ph")
+                    self.rewards_ph = tf.placeholder(tf.float32, [None], name="rewards_ph")
+                    self.old_neglog_pac_ph = tf.placeholder(tf.float32, [None], name="old_neglog_pac_ph")
+                    self.old_vpred_ph = tf.placeholder(tf.float32, [None], name="old_vpred_ph")
+                    self.learning_rate_ph = tf.placeholder(tf.float32, [], name="learning_rate_ph")
+                    self.clip_range_ph = tf.placeholder(tf.float32, [], name="clip_range_ph")
+
+                    neglogpac = train_model.proba_distribution.neglogp(self.action_ph)
+                    self.entropy = tf.reduce_mean(train_model.proba_distribution.entropy())
+
+                    vpred = train_model._value
+                    vpredclipped = self.old_vpred_ph + tf.clip_by_value(
+                        train_model._value - self.old_vpred_ph, - self.clip_range_ph, self.clip_range_ph)
+                    vf_losses1 = tf.square(vpred - self.rewards_ph)
+                    vf_losses2 = tf.square(vpredclipped - self.rewards_ph)
+                    self.vf_loss = .5 * tf.reduce_mean(tf.maximum(vf_losses1, vf_losses2))
+                    ratio = tf.exp(self.old_neglog_pac_ph - neglogpac)
+                    pg_losses = -self.advs_ph * ratio
+                    pg_losses2 = -self.advs_ph * tf.clip_by_value(ratio, 1.0 - self.clip_range_ph, 1.0 +
+                                                                  self.clip_range_ph)
+                    self.pg_loss = tf.reduce_mean(tf.maximum(pg_losses, pg_losses2))
+                    self.approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - self.old_neglog_pac_ph))
+                    self.clipfrac = tf.reduce_mean(tf.cast(tf.greater(tf.abs(ratio - 1.0),
+                                                                      self.clip_range_ph), tf.float32))
+                    loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef
+
+                    tf.summary.scalar('entropy_loss', self.entropy)
+                    tf.summary.scalar('policy_gradient_loss', self.pg_loss)
+                    tf.summary.scalar('value_function_loss', self.vf_loss)
+                    tf.summary.scalar('approximate_kullback-leiber', self.approxkl)
+                    tf.summary.scalar('clip_factor', self.clipfrac)
+                    tf.summary.scalar('loss', loss)
+
+                    with tf.variable_scope('model'):
+                        self.params = tf.trainable_variables()
+                        if self.full_tensorboard_log:
+                            for var in self.params:
+                                tf.summary.histogram(var.name, var)
+                    grads = tf.gradients(loss, self.params)
+                    if self.max_grad_norm is not None:
+                        grads, _grad_norm = tf.clip_by_global_norm(grads, self.max_grad_norm)
+                    grads = list(zip(grads, self.params))
+
+                trainer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_ph, epsilon=1e-5)
+                self._train = trainer.apply_gradients(grads)
+
+                self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac']
+
+                with tf.variable_scope("input_info", reuse=False):
+                    tf.summary.scalar('discounted_rewards', tf.reduce_mean(self.rewards_ph))
+                    tf.summary.scalar('learning_rate', tf.reduce_mean(self.learning_rate_ph))
+                    tf.summary.scalar('advantage', tf.reduce_mean(self.advs_ph))
+                    tf.summary.scalar('clip_range', tf.reduce_mean(self.clip_range_ph))
+                    tf.summary.scalar('old_neglog_action_probabilty', tf.reduce_mean(self.old_neglog_pac_ph))
+                    tf.summary.scalar('old_value_pred', tf.reduce_mean(self.old_vpred_ph))
+
+                    if self.full_tensorboard_log:
+                        tf.summary.histogram('discounted_rewards', self.rewards_ph)
+                        tf.summary.histogram('learning_rate', self.learning_rate_ph)
+                        tf.summary.histogram('advantage', self.advs_ph)
+                        tf.summary.histogram('clip_range', self.clip_range_ph)
+                        tf.summary.histogram('old_neglog_action_probabilty', self.old_neglog_pac_ph)
+                        tf.summary.histogram('old_value_pred', self.old_vpred_ph)
+                        if tf_util.is_image(self.observation_space):
+                            tf.summary.image('observation', train_model.obs_ph)
+                        else:
+                            tf.summary.histogram('observation', train_model.obs_ph)
+
+                self.train_model = train_model
+                self.act_model = act_model
+                self.step = act_model.step
+                self.proba_step = act_model.proba_step
+                self.value = act_model.value
+                self.initial_state = act_model.initial_state
+                tf.global_variables_initializer().run(session=self.sess)  # pylint: disable=E1101
+
+                self.summary = tf.summary.merge_all()
