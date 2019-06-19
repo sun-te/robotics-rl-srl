@@ -10,7 +10,7 @@ from state_representation import SRLType
 from rl_baselines.base_classes import StableBaselinesRLObject
 from rl_baselines.progressive_nn.utils import *
 from rl_baselines import AlgoType, ActionType
-from rl_baselines.progressive_nn.ppo2_model import ProgPPO2
+from rl_baselines.progressive_nn.ppo2_model_weight import ProgPPO2
 from rl_baselines.rl_algorithm.ppo2 import PPO2Model
 
 def loadConfigAndSetup(log_dir):
