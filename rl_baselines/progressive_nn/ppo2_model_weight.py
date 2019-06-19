@@ -37,11 +37,33 @@ def linear(input_tensor, scope, n_hidden, *, init_scale=1.0, init_bias=0.0):
         return tf.matmul(input_tensor, weight) + bias
 
 
-def prog_mlp_extractor(flat_observations, net_arch, act_fun, dict_res_tensor={},n_col=0):
+def prog_mlp_extractor(flat_observations, net_arch, act_fun, dict_res_tensor={}):
+    printRed(net_arch)
     latent = flat_observations
     policy_only_layers = []  # Layer sizes of the network that only belongs to the policy network
     value_only_layers = []  # Layer sizes of the network that only belongs to the value network
 
+    # Test purpose
+    #
+    # if(len(prev_cols)>0):
+    #     model = prev_cols[0]
+    #     sess = model.sess
+    #     graph =sess.graph
+    #
+    #     model_variables = graph.get_operations()
+    #     train_ops = []
+    #     for op in model_variables:
+    #         if("loss" not in str(op.name) and "model" in str(op.name) and "add" in str(op.name)):
+    #             print(op.name)
+    #             train_ops.append(op.values())
+    #             # try:
+    #             #     tmp = sess.run(op.values())
+    #             #     if(tmp !=None):
+    #             #         print(op.name,op.values(), tmp[0].shape)
+    #             # except:
+    #             #     print("feed_dict no compitible", op.name)
+    #     #model / pi_fc0 / w: 0
+    # Iterate through the shared layers and build the shared parts of the network
     for idx, layer in enumerate(net_arch):
         if isinstance(layer, int):  # Check that this is a shared layer
             layer_size = layer
@@ -63,45 +85,18 @@ def prog_mlp_extractor(flat_observations, net_arch, act_fun, dict_res_tensor={},
         if pi_layer_size is not None:
             assert isinstance(pi_layer_size, int), "Error: net_arch[-1]['pi'] must only contain integers."
             latent_policy = (linear(latent_policy, "pi_fc{}".format(idx), pi_layer_size, init_scale=np.sqrt(2)))
-
-            with tf.variable_scope("pi_res_{}".format(idx),reuse=tf.AUTO_REUSE):
-                if (n_col > 0 and "train_model" in latent_policy.name):
-                    try:
-                        res_pi_ph = dict_res_tensor[latent_policy.name.split(":")[0]]
-                        printGreen(res_pi_ph)
-                        res_len = res_pi_ph.shape[1]
-                        U = tf.get_variable(name="U{}".format(idx), shape=[res_len, pi_layer_size],
-                                            initializer=ortho_init(np.sqrt(2)))
-                        latent_policy += tf.matmul(res_pi_ph , U)
-                    except KeyError:
-                        printYellow(latent_policy.name.split(":")[0])
-                        set_trace()
-                        printRed("Key error")
-                latent_policy = act_fun(latent_policy)
-
-
+            print(latent_policy.name)
+            with tf.variable_scope("pi_res_{}".format(idx)):
+                try:
+                    print(dict_res_tensor[latent_policy.name])
+                except:
+                    printRed("Exception: residual insertion from previous model failed.")
+            latent_policy = act_fun(latent_policy)
         if vf_layer_size is not None:
             assert isinstance(vf_layer_size, int), "Error: net_arch[-1]['vf'] must only contain integers."
-
             latent_value = (linear(latent_value, "vf_fc{}".format(idx), vf_layer_size, init_scale=np.sqrt(2)))
-
-
-            with tf.variable_scope("vf_res_{}".format(idx),reuse=tf.AUTO_REUSE):
-                if (n_col > 0 and "train_model" in latent_policy.name):
-                    try:
-                        res_vf_ph = dict_res_tensor[latent_value.name.split(":")[0]]
-                        printGreen(res_vf_ph)
-                        res_len = res_vf_ph.shape[1]
-                        U = tf.get_variable(name="U{}".format(idx), shape=[res_len, vf_layer_size],
-                                            initializer=ortho_init(np.sqrt(2)))
-                        latent_value += tf.matmul(res_vf_ph , U)
-                    except KeyError:
-                        printYellow(latent_policy.name.split(":")[0])
-                        set_trace()
-                        printRed("Key error")
-                latent_value = act_fun(latent_value)
-
-
+            with tf.variable_scope("vf_res_{}".format(idx)):
+                latent_value = act_fun(latent_value + 2)
     return latent_policy, latent_value
 
 #model/pi_fc1/add:0
@@ -113,7 +108,7 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
         super(ProgressiveFeedForwardPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps,
                                                            n_batch, reuse=reuse, scale=(feature_extraction == "cnn"))
         self._kwargs_check(feature_extraction, kwargs)
-
+        
 
         if layers is not None:
             warnings.warn("Usage of the `layers` parameter is deprecated! Use net_arch instead "
@@ -131,14 +126,13 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
             net_arch = [dict(vf=layers, pi=layers)]
 
         # create the residual placeholder for the progressive insertion
-        self.residualPlaceholder(ob_space, net_arch, n_prev_col)
+        self._residualPlaceholder(ob_space,net_arch, n_prev_col)
 
         with tf.variable_scope("model", reuse=reuse):
             if feature_extraction == "cnn":
                 pi_latent = vf_latent = cnn_extractor(self.processed_obs, **kwargs)
             else:    # construction of the model, mlp
-                pi_latent, vf_latent = prog_mlp_extractor(tf.layers.flatten(self.processed_obs),
-                                                          net_arch, act_fun, self.dict_res_tensor_ph, n_prev_col)
+                pi_latent, vf_latent = prog_mlp_extractor(tf.layers.flatten(self.processed_obs), net_arch, act_fun, n_prev_col)
 
             self.value_fn = linear(vf_latent, 'vf', 1)
             self.proba_distribution, self.policy, self.q_value = \
@@ -147,11 +141,11 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
         self.initial_state = None
         self._setup_init()
 
-    def residualPlaceholder(self, ob_space, net_arch=None, n_prev_col=0):
+    def _residualPlaceholder(self, ob_space, net_arch=None, n_prev_col=0):
         self.dict_res_tensor_ph = {}
         for idx, layer in enumerate(net_arch):
             if isinstance(layer, int):
-                pass
+                pass;
             else:
                 assert isinstance(layer, dict), "Error: the net_arch list can only contain ints and dicts"
                 if 'pi' in layer:
@@ -164,27 +158,17 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
                 break  # From here on the network splits up in policy and value network
 
 
-        with tf.variable_scope("res_input", reuse=tf.AUTO_REUSE):
+        with tf.variable_scope("res_input", reuse=False):
             for idx, (pi_layer_size, vf_layer_size) in enumerate(zip_longest(policy_only_layers, value_only_layers)):
                 if pi_layer_size is not None:
                     name = "res_pi_fc{}".format(idx)
-                    key = "train_model/model/pi_fc{}/add".format(idx)
-                    self.dict_res_tensor_ph[key] = tf.placeholder(dtype=ob_space.dtype, name=name,
+                    self.dict_res_tensor_ph[name] = tf.placeholder(dtype=ob_space.dtype, name=name,
                                                                    shape=[None, pi_layer_size * n_prev_col])
-
-                    key = "model/pi_fc{}/add".format(idx)
-                    self.dict_res_tensor_ph[key] = tf.placeholder(dtype=ob_space.dtype, name=name,
-                                                                  shape=[None, pi_layer_size * n_prev_col])
-
-
                 if vf_layer_size is not None:
                     name = "res_vf_fc{}".format(idx)
-                    key = "train_model/model/vf_fc{}/add".format(idx)
-                    self.dict_res_tensor_ph[key] = tf.placeholder(dtype=ob_space.dtype, name=name,
+                    self.dict_res_tensor_ph[name] = tf.placeholder(dtype=ob_space.dtype, name=name,
                                                                    shape=[None, vf_layer_size * n_prev_col])
-                    key = "model/vf_fc{}/add".format(idx)
-                    self.dict_res_tensor_ph[key] = tf.placeholder(dtype=ob_space.dtype, name=name,
-                                                                  shape=[None, vf_layer_size * n_prev_col])
+
 
 
     @staticmethod
@@ -205,6 +189,7 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
         # (in that case the keywords arguments are passed explicitely)
         if feature_extraction == 'mlp' and len(kwargs) > 1:
             raise ValueError("Unknown keywords for policy: {}".format(kwargs))
+
 
     def step(self, obs, state=None, mask=None, deterministic=False):
         if deterministic:
@@ -321,7 +306,6 @@ class ProgPPO2(PPO2):
                     n_batch_train = self.n_batch // self.nminibatches
 
                 tensor_name, _ = self.getResidualTensorName()
-
                 act_model = self.policy(self.sess, self.observation_space, self.action_space, self.n_envs, 1,
                                         n_batch_step, n_prev_col=len(self.prev_cols), tensor_name=tensor_name,
                                         reuse=False, **self.policy_kwargs)
@@ -411,7 +395,6 @@ class ProgPPO2(PPO2):
                 self.proba_step = act_model.proba_step
                 self.value = act_model.value
                 self.initial_state = act_model.initial_state
-
                 tf.global_variables_initializer().run(session=self.sess)  # pylint: disable=E1101
 
                 self.summary = tf.summary.merge_all()
@@ -426,8 +409,7 @@ class ProgPPO2(PPO2):
         all_operations = graph.get_operations()
         for ops in all_operations:
             name = ops.name
-            if (("loss" not in name) and ( "model/" in name or ("train_model/model/" in name))
-                    and ("add" in name) and "res" not in name):
+            if (("loss" not in name) and ("train_model/model/" in name) and ("add" in name) and "res" not in name):
                 res_tensor_name.append(name)
                 res_tensor_value[name] = []
         return res_tensor_name, res_tensor_value
@@ -441,8 +423,7 @@ class ProgPPO2(PPO2):
         for model in self.prev_cols:
             sess = model.sess
             prev_graph = sess.graph
-            feed_dict = {prev_graph.get_operation_by_name('train_model/input/Ob').values(): obs,
-                         prev_graph.get_operation_by_name('input/Ob').values(): obs}
+            feed_dict = {prev_graph.get_operation_by_name('train_model/input/Ob').values(): obs}
             for name in res_tensor_name:
                 tensor = prev_graph.get_operation_by_name(name).values()
                 res_tensor_value[name].append((sess.run(tf.squeeze(tensor), feed_dict)))
@@ -453,6 +434,7 @@ class ProgPPO2(PPO2):
                     for i,arr in enumerate(res_tensor_value[name]):
                         res_tensor_value[name][i] = arr.reshape([batch_size,1])
                 res_tensor_value[name] = np.concatenate(res_tensor_value[name],axis=1)
+
         return res_tensor_value, res_tensor_name
 
     def _train_step(self, learning_rate, cliprange, obs, returns, masks, actions, values, neglogpacs, update,
@@ -474,23 +456,12 @@ class ProgPPO2(PPO2):
         :return: policy gradient loss, value function loss, policy entropy,
                 approximation of kl divergence, updated clipping range, training update operation
         """
-
         advs = returns - values
         advs = (advs - advs.mean()) / (advs.std() + 1e-8)
         res_tensor_value, res_tensor_name = self.residualBlock(obs)
-
-
-
         td_map = {self.train_model.obs_ph: obs, self.action_ph: actions, self.advs_ph: advs, self.rewards_ph: returns,
                   self.learning_rate_ph: learning_rate, self.clip_range_ph: cliprange,
-                  self.old_neglog_pac_ph: neglogpacs, self.old_vpred_ph: values}
-
-
-        train_model_res_map = {self.train_model.dict_res_tensor_ph[key]: res_tensor_value[key]
-                   for key in self.train_model.dict_res_tensor_ph.keys()}
-        act_model_res_map = {self.act_model.dict_res_tensor_ph[key]: res_tensor_value[key]
-                             for key in self.act_model.dict_res_tensor_ph.keys()}
-        td_map = {**td_map, **train_model_res_map, **act_model_res_map}
+                  self.old_neglog_pac_ph: neglogpacs, self.old_vpred_ph: values, self.dict_res_tensor_ph:res_tensor_value}
         if states is not None:
             td_map[self.train_model.states_ph] = states
             td_map[self.train_model.masks_ph] = masks
