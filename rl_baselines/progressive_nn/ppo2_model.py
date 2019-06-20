@@ -19,7 +19,6 @@ from rl_baselines.progressive_nn.prnn_policy import ProgressiveMlpPolicy
 from srl_zoo.utils import printRed,printGreen,printYellow
 
 
-
 class ProgPPO2(PPO2):
     def __init__(self, policy, env, prev_cols=(),gamma=0.99, n_steps=128, ent_coef=0.01, learning_rate=2.5e-4, vf_coef=0.5,
                  max_grad_norm=0.5, lam=0.95, nminibatches=4, noptepochs=4, cliprange=0.2, verbose=0,
@@ -107,13 +106,15 @@ class ProgPPO2(PPO2):
 
                 act_model = self.policy(self.sess, self.observation_space, self.action_space, self.n_envs, 1,
                                         n_batch_step,
-                                        n_prev_col=len(self.prev_cols),
+                                        prev_policy=[model.policy for model in self.prev_cols],
+                                        prev_sess=[model.sess for model in self.prev_cols],
                                         reuse=False, **self.policy_kwargs)
 
                 with tf.variable_scope("train_model", reuse=True, custom_getter=tf_util.outer_scope_getter("train_model")):
                     train_model = self.policy(self.sess, self.observation_space, self.action_space,
                                               self.n_envs // self.nminibatches, self.n_steps, n_batch_train,
-                                              n_prev_col=len(self.prev_cols),
+                                              prev_policy=[model.train_model.policy for model in self.prev_cols],
+                                              prev_sess=[model.sess for model in self.prev_cols],
                                               reuse=True, **self.policy_kwargs)
 
                 with tf.variable_scope("loss", reuse=False):
