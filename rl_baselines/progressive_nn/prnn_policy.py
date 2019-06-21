@@ -31,7 +31,7 @@ def linear(input_tensor, scope, n_hidden, *, init_scale=1.0, init_bias=0.0):
     """
     with tf.variable_scope(scope):
         n_input = input_tensor.get_shape()[1].value
-        weight = tf.get_variable("w", [n_input, n_hidden], initializer=ortho_init(init_scale))
+        weight = tf.get_variable("w", [n_input, n_hidden], initializer=tf.constant_initializer(init_bias))
         bias = tf.get_variable("b", [n_hidden], initializer=tf.constant_initializer(init_bias))
         return tf.matmul(input_tensor, weight) + bias
 
@@ -70,7 +70,7 @@ def prog_mlp_extractor(flat_observations, net_arch, act_fun, dict_res_tensor_ph,
                     printGreen(res_pi_ph)
                     res_len = res_pi_ph.shape[1]
                     U = tf.get_variable(name="U{}".format(idx), shape=[res_len, pi_layer_size],
-                                        initializer=ortho_init(np.sqrt(2)))
+                                     initializer=tf.constant_initializer(1.))
                     latent_policy += tf.matmul(res_pi_ph , U)
 
             latent_policy = act_fun(latent_policy)
@@ -85,7 +85,7 @@ def prog_mlp_extractor(flat_observations, net_arch, act_fun, dict_res_tensor_ph,
                     res_vf_ph = dict_res_tensor_ph[latent_value.name.split(":")[0]]
                     res_len = res_vf_ph.shape[1]
                     U = tf.get_variable(name="U{}".format(idx), shape=[res_len, vf_layer_size],
-                                        initializer=ortho_init(np.sqrt(2)))
+                                        initializer=tf.constant_initializer(1.))
                     latent_value += tf.matmul(res_vf_ph , U)
             latent_value = act_fun(latent_value)
 
@@ -119,8 +119,8 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
             net_arch = [dict(vf=layers, pi=layers)]
 
         # create the residual placeholder for the progressive insertion
-        if(len(self.prev_policy)>0):
-            self.residualPlaceholder(ob_space, net_arch, prev_policy)
+
+        self.residualPlaceholder(ob_space, net_arch, prev_policy)
 
         with tf.variable_scope("model", reuse=reuse):
             if feature_extraction == "cnn":
@@ -231,7 +231,13 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
 
                 if (name in dict_value.keys()):
                     tensor = tf.squeeze(sess.graph.get_operation_by_name(name).values())
-                    dict_value[name].append(sess.run(tensor,feed_dict))
+                    value = sess.run(tensor,feed_dict)
+                    if(len(value.shape) ==1):
+                        dict_value[name] = value.reshape(1,len(value))
+                    else:
+                        dict_value[name] = value
+
+
         feed_dict = {self.dict_res_tensor_ph[key]:dict_value[key] for key in dict_value.keys()}
         return feed_dict
 
