@@ -36,7 +36,7 @@ def linear(input_tensor, scope, n_hidden, *, init_scale=1.0, init_bias=0.0):
         return tf.matmul(input_tensor, weight) + bias
 
 
-def prog_mlp_extractor(flat_observations, net_arch, act_fun, dict_res_tensor={},n_col=0):
+def prog_mlp_extractor(flat_observations, net_arch, act_fun, dict_res_tensor_ph, n_col=0):
     latent = flat_observations
     policy_only_layers = []  # Layer sizes of the network that only belongs to the policy network
     value_only_layers = []  # Layer sizes of the network that only belongs to the value network
@@ -64,9 +64,10 @@ def prog_mlp_extractor(flat_observations, net_arch, act_fun, dict_res_tensor={},
             latent_policy = (linear(latent_policy, "pi_fc{}".format(idx), pi_layer_size, init_scale=np.sqrt(2)))
 
             with tf.variable_scope("pi_res_{}".format(idx),reuse=tf.AUTO_REUSE):
-                if (n_col > 0 ):
+                print(latent_policy.name)
+                if (n_col > 0):# and "train_model" in latent_policy.name):
                     try:
-                        res_pi_ph = dict_res_tensor[latent_policy.name.split(":")[0]]
+                        res_pi_ph = dict_res_tensor_ph[latent_policy.name.split(":")[0]]
                         printGreen(res_pi_ph)
                         res_len = res_pi_ph.shape[1]
                         U = tf.get_variable(name="U{}".format(idx), shape=[res_len, pi_layer_size],
@@ -85,15 +86,17 @@ def prog_mlp_extractor(flat_observations, net_arch, act_fun, dict_res_tensor={},
 
 
             with tf.variable_scope("vf_res_{}".format(idx),reuse=tf.AUTO_REUSE):
-                if (n_col > 0 and "train_model" in latent_value.name):
+                try:
+                    if (n_col > 0):
+                        res_vf_ph = dict_res_tensor_ph[latent_value.name.split(":")[0]]
+                        res_len = res_vf_ph.shape[1]
+                        U = tf.get_variable(name="U{}".format(idx), shape=[res_len, vf_layer_size],
+                                            initializer=ortho_init(np.sqrt(2)))
+                        latent_value += tf.matmul(res_vf_ph , U)
+                except KeyError:
+                    pass
 
-                    res_vf_ph = dict_res_tensor[latent_value.name.split(":")[0]]
-                    res_len = res_vf_ph.shape[1]
-                    U = tf.get_variable(name="U{}".format(idx), shape=[res_len, vf_layer_size],
-                                        initializer=ortho_init(np.sqrt(2)))
-                    latent_value += tf.matmul(res_vf_ph , U)
-
-                latent_value = act_fun(latent_value)
+            latent_value = act_fun(latent_value)
 
 
     return latent_policy, latent_value
@@ -132,7 +135,9 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
                 pi_latent = vf_latent = cnn_extractor(self.processed_obs, **kwargs)
             else:    # construction of the model, mlp
                 pi_latent, vf_latent = prog_mlp_extractor(tf.layers.flatten(self.processed_obs),
-                                                          net_arch, act_fun, self.dict_res_tensor_ph, n_prev_col)
+                                                          net_arch, act_fun,
+                                                          self.dict_res_tensor_ph,
+                                                          n_prev_col)
 
             self.value_fn = linear(vf_latent, 'vf', 1)
             self.proba_distribution, self.policy, self.q_value = \
@@ -144,6 +149,9 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
     def residualPlaceholder(self, ob_space, net_arch=None, prev_policy=[]):
         n_prev_col = len(prev_policy)
         self.dict_res_tensor_ph = {}
+        self.res_pi_tensor_ph = []
+        self.res_vf_tensor_ph = []
+
         for idx, layer in enumerate(net_arch):
             if isinstance(layer, int):
                 pass
@@ -164,25 +172,29 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
                 if pi_layer_size is not None:
                     name = "res_pi_fc{}".format(idx)
                     key = "train_model/model/pi_fc{}/add".format(idx)
-                    self.dict_res_tensor_ph[key] = tf.placeholder(dtype=ob_space.dtype, name=name,
+                    res_pi_ph = tf.placeholder(dtype=ob_space.dtype, name=name,
                                                                    shape=[None, pi_layer_size * n_prev_col])
-
-                    # key = "model/pi_fc{}/add".format(idx)
-                    # name = "act_pi_fc{}".format(idx)
-                    # self.dict_res_tensor_ph[key] = tf.placeholder(dtype=ob_space.dtype, name=name,
-                    #                                               shape=[None, pi_layer_size * n_prev_col])
+                    self.dict_res_tensor_ph[key] = res_pi_ph
+                    self.res_pi_tensor_ph.append(res_pi_ph)
+                    key = "model/pi_fc{}/add".format(idx)
+                    name = "act_pi_fc{}".format(idx)
+                    self.dict_res_tensor_ph[key] = tf.placeholder(dtype=ob_space.dtype, name=name,
+                                                                  shape=[None, pi_layer_size * n_prev_col])
 
 
                 if vf_layer_size is not None:
                     name = "res_vf_fc{}".format(idx)
                     key = "train_model/model/vf_fc{}/add".format(idx)
-                    self.dict_res_tensor_ph[key] = tf.placeholder(dtype=ob_space.dtype, name=name,
+                    res_vf_ph = tf.placeholder(dtype=ob_space.dtype, name=name,
                                                                    shape=[None, vf_layer_size * n_prev_col])
-                    # name = "act_vf_fc{}".format(idx)
-                    # key = "model/vf_fc{}/add".format(idx)
-                    # self.dict_res_tensor_ph[key] = tf.placeholder(dtype=ob_space.dtype, name=name,
-                    #                                               shape=[None, vf_layer_size * n_prev_col])
-                    #
+
+                    self.dict_res_tensor_ph[key] = res_vf_ph
+                    self.res_vf_tensor_ph.append(res_vf_ph)
+                    name = "act_vf_fc{}".format(idx)
+                    key = "model/vf_fc{}/add".format(idx)
+                    self.dict_res_tensor_ph[key] = tf.placeholder(dtype=ob_space.dtype, name=name,
+                                                                  shape=[None, vf_layer_size * n_prev_col])
+
 
     @staticmethod
     def _kwargs_check(feature_extraction, kwargs):
@@ -203,34 +215,54 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
         if feature_extraction == 'mlp' and len(kwargs) > 1:
             raise ValueError("Unknown keywords for policy: {}".format(kwargs))
 
-    def prev_feed_dict(self, obs, state=None, mask=None):
-        set_trace()
+    def prev_feed_dict(self, obs):
+        if(self.prev_policy.__len__()==0):
+            return {}
+        dict_value ={
+            "model/pi_fc0/add":[],
+            "model/pi_fc1/add":[],
+            "model/vf_fc0/add":[],
+            "model/vf_fc1/add":[],
+            # "model/vf/add":[],
+            # "model/pi/add":[],
+            # "model/q/add":[],
+        }
+        for sess in self.prev_sess:
+            feed_dict = {sess.graph.get_operation_by_name("input/Ob").values(): obs}
+            graph = sess.graph
+            all_operations = graph.get_operations()
 
+            for ops in all_operations:
+                name = ops.name
+                # if ( "loss" not in name and "model" in name and "train" not in name
+                #     and "add" in name and "res" not in name and "_" in name ):
 
-        return
-
-
-
-
+                if (name in dict_value.keys()):
+                    tensor = tf.squeeze(sess.graph.get_operation_by_name(name).values())
+                    dict_value[name].append(sess.run(tensor,feed_dict))
+        feed_dict = {self.dict_res_tensor_ph[key]:dict_value[key] for key in dict_value.keys()}
+        return feed_dict
 
 
     def step(self, obs, state=None, mask=None, deterministic=False):
-
-        self.prev_feed_dict(obs)
+        feed_dict = self.prev_feed_dict(obs)
 
         if deterministic:
             action, value, neglogp = self.sess.run([self.deterministic_action, self._value, self.neglogp],
-                                                   {self.obs_ph: obs})
+                                                   {self.obs_ph: obs, **feed_dict})
         else:
             action, value, neglogp = self.sess.run([self.action, self._value, self.neglogp],
-                                                   {self.obs_ph: obs})
+                                                   {self.obs_ph: obs, **feed_dict})
+
         return action, value, self.initial_state, neglogp
 
     def proba_step(self, obs, state=None, mask=None):
-        return self.sess.run(self.policy_proba, {self.obs_ph: obs})
+        feed_dict = self.prev_feed_dict(obs)
+        return self.sess.run(self.policy_proba, {self.obs_ph: obs, **feed_dict})
 
     def value(self, obs, state=None, mask=None):
-        return self.sess.run(self._value, {self.obs_ph: obs})
+        feed_dict = self.prev_feed_dict(obs)
+        return self.sess.run(self._value, {self.obs_ph: obs, **feed_dict})
 
 
 class ProgressiveMlpPolicy(ProgressiveFeedForwardPolicy):

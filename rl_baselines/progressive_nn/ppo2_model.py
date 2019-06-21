@@ -211,7 +211,8 @@ class ProgPPO2(PPO2):
         for ops in all_operations:
             name = ops.name
             if (("loss" not in name) and ( ("train_model/model/" in name))
-                    and ("add" in name) and "res" not in name):
+                    and ("add" in name) and "res" not in name
+                    ):
                 res_tensor_name.append(name)
                 res_tensor_value[name] = []
         return res_tensor_name, res_tensor_value
@@ -229,6 +230,7 @@ class ProgPPO2(PPO2):
             for name in res_tensor_name:
                 tensor = prev_graph.get_operation_by_name(name).values()
                 res_tensor_value[name].append((sess.run(tf.squeeze(tensor), feed_dict)))
+
         if(len(self.prev_cols)>0):
             for name in res_tensor_name:
                 if(len(res_tensor_value[name][0].shape)==1):
@@ -268,9 +270,14 @@ class ProgPPO2(PPO2):
                   self.learning_rate_ph: learning_rate, self.clip_range_ph: cliprange,
                   self.old_neglog_pac_ph: neglogpacs, self.old_vpred_ph: values}
 
+        train_model_res_map = {}
+
         if(len(res_tensor_name)>0 ):
-            train_model_res_map = {self.train_model.dict_res_tensor_ph[key]: res_tensor_value[key]
-                      for key in self.train_model.dict_res_tensor_ph.keys()}
+            for key in set(res_tensor_value.keys()).intersection(set(self.train_model.dict_res_tensor_ph.keys())):
+                train_model_res_map[self.train_model.dict_res_tensor_ph[key]] = res_tensor_value[key]
+
+            # train_model_res_map = {self.train_model.dict_res_tensor_ph[key]: res_tensor_value[key]
+            #           for key in res_tensor_value.keys()}
         # act_model_res_map = {self.act_model.dict_res_tensor_ph[key]: res_tensor_value[key]
         #                      for key in self.act_model.dict_res_tensor_ph.keys()}
 
