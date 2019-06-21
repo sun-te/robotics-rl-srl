@@ -62,40 +62,31 @@ def prog_mlp_extractor(flat_observations, net_arch, act_fun, dict_res_tensor_ph,
         if pi_layer_size is not None:
             assert isinstance(pi_layer_size, int), "Error: net_arch[-1]['pi'] must only contain integers."
             latent_policy = (linear(latent_policy, "pi_fc{}".format(idx), pi_layer_size, init_scale=np.sqrt(2)))
+            if (n_col > 0):
+                with tf.variable_scope("pi_res_{}".format(idx),reuse=tf.AUTO_REUSE):
+                    print(latent_policy.name)
+                    # and"train_model" in latent_policy.name):
+                    res_pi_ph = dict_res_tensor_ph[latent_policy.name.split(":")[0]]
+                    printGreen(res_pi_ph)
+                    res_len = res_pi_ph.shape[1]
+                    U = tf.get_variable(name="U{}".format(idx), shape=[res_len, pi_layer_size],
+                                        initializer=ortho_init(np.sqrt(2)))
+                    latent_policy += tf.matmul(res_pi_ph , U)
 
-            with tf.variable_scope("pi_res_{}".format(idx),reuse=tf.AUTO_REUSE):
-                print(latent_policy.name)
-                if (n_col > 0):# and "train_model" in latent_policy.name):
-                    try:
-                        res_pi_ph = dict_res_tensor_ph[latent_policy.name.split(":")[0]]
-                        printGreen(res_pi_ph)
-                        res_len = res_pi_ph.shape[1]
-                        U = tf.get_variable(name="U{}".format(idx), shape=[res_len, pi_layer_size],
-                                            initializer=ortho_init(np.sqrt(2)))
-                        latent_policy += tf.matmul(res_pi_ph , U)
-                    except KeyError:
-                        printYellow(latent_policy.name.split(":")[0])
-                        printRed("Key error")
-                latent_policy = act_fun(latent_policy)
-
+            latent_policy = act_fun(latent_policy)
 
         if vf_layer_size is not None:
             assert isinstance(vf_layer_size, int), "Error: net_arch[-1]['vf'] must only contain integers."
 
             latent_value = (linear(latent_value, "vf_fc{}".format(idx), vf_layer_size, init_scale=np.sqrt(2)))
 
-
-            with tf.variable_scope("vf_res_{}".format(idx),reuse=tf.AUTO_REUSE):
-                try:
-                    if (n_col > 0):
-                        res_vf_ph = dict_res_tensor_ph[latent_value.name.split(":")[0]]
-                        res_len = res_vf_ph.shape[1]
-                        U = tf.get_variable(name="U{}".format(idx), shape=[res_len, vf_layer_size],
-                                            initializer=ortho_init(np.sqrt(2)))
-                        latent_value += tf.matmul(res_vf_ph , U)
-                except KeyError:
-                    pass
-
+            if (n_col > 0):
+                with tf.variable_scope("vf_res_{}".format(idx),reuse=tf.AUTO_REUSE):
+                    res_vf_ph = dict_res_tensor_ph[latent_value.name.split(":")[0]]
+                    res_len = res_vf_ph.shape[1]
+                    U = tf.get_variable(name="U{}".format(idx), shape=[res_len, vf_layer_size],
+                                        initializer=ortho_init(np.sqrt(2)))
+                    latent_value += tf.matmul(res_vf_ph , U)
             latent_value = act_fun(latent_value)
 
 
@@ -128,7 +119,8 @@ class ProgressiveFeedForwardPolicy(ActorCriticPolicy):
             net_arch = [dict(vf=layers, pi=layers)]
 
         # create the residual placeholder for the progressive insertion
-        self.residualPlaceholder(ob_space, net_arch, prev_policy)
+        if(len(self.prev_policy)>0):
+            self.residualPlaceholder(ob_space, net_arch, prev_policy)
 
         with tf.variable_scope("model", reuse=reuse):
             if feature_extraction == "cnn":
