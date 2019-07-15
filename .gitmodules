@@ -6,3 +6,6 @@
 	path = stable_baselines
 	branch = master
 	url = https://github.com/sun-te/stable-baselines.git
+[submodule "stable-baselines"]
+	path = stable-baselines
+	url = https://github.com/sun-te/stable-baselines.git
