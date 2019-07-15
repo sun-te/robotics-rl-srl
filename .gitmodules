@@ -2,10 +2,6 @@
 	path = srl_zoo
 	branch = master
 	url = https://github.com/araffin/srl-zoo.git
-[submodule "stable_baselines"]
-	path = stable_baselines
-	branch = master
-	url = https://github.com/sun-te/stable-baselines.git
 [submodule "stable-baselines"]
-	path = stable-baselines
+	path = stable_baselines
 	url = https://github.com/sun-te/stable-baselines.git
