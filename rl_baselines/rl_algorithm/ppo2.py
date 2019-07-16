@@ -60,7 +60,7 @@ class PPO2Model(StableBaselinesRLObject):
                 "verbose": 1,
                 "n_steps": 128,
                 "ent_coef": 0.01,
-                "learning_rate": lambda f: f * 2.5e-4,
+                "learning_rate": lambda f: f * 2.5e-2,
                 "vf_coef": 0.5,
                 "max_grad_norm": 0.5,
                 "gamma": 0.99,

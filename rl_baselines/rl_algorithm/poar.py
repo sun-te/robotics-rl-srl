@@ -58,7 +58,7 @@ class POARModel(StableBaselinesRLObject):
         else:
             param_kwargs = {
                 "verbose": 1,
-                "n_steps": 250,
+                "n_steps": 128,
                 "ent_coef": 0.01,
                 "learning_rate": lambda f: f * 2.5e-4,
                 "vf_coef": 0.5,

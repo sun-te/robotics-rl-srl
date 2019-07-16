@@ -17,7 +17,7 @@ RENDER_HEIGHT = 224
 RENDER_WIDTH = 224
 N_DISCRETE_ACTIONS = 4
 
-DELTA_POS = 0.1  # DELTA_POS
+DELTA_POS = 0.2  # DELTA_POS
 RELATIVE_POS = True  # Use relative position for ground truth
 NOISE_STD = 0.0
 
@@ -262,8 +262,11 @@ class MobileRobotGymEnv(SRLGymEnv):
                 self.robot_pos = previous_pos
                 break
         # Update mobile robot position
-        p.resetBasePositionAndOrientation(self.robot_uid, self.robot_pos, [0, 0, 0, 1])
-
+        def one_hot(action):
+            one_hot_action = [0,0,0,0]
+            one_hot_action[3] = action
+            return one_hot_action
+        p.resetBasePositionAndOrientation(self.robot_uid, self.robot_pos, [0,0,0,1])
         p.stepSimulation()
         self._env_step_counter += 1
 

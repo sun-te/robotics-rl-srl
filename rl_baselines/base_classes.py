@@ -3,6 +3,7 @@ import pickle
 import re
 from stable_baselines.common.policies import CnnPolicy, CnnLstmPolicy, CnnLnLstmPolicy, MlpPolicy, MlpLstmPolicy, \
     MlpLnLstmPolicy
+from stable_baselines.poar.policies import AEPolicy
 from rl_baselines.progressive_nn.prnn_policy import ProgressiveMlpPolicy
 from rl_baselines.utils import createEnvs
 
@@ -261,12 +262,13 @@ class StableBaselinesRLObject(BaseRLObject):
                      'mlp': MlpPolicy,
                      'lstm': MlpLstmPolicy,
                      'lnlstm': MlpLnLstmPolicy,
-                     'progressive':ProgressiveMlpPolicy}[args.policy]
+                     'progressive':ProgressiveMlpPolicy
+                     }[args.policy]
 
         if self.load_rl_model_path is not None:
             print("Load trained model from the path: ", self.load_rl_model_path)
             self.model = self.model_class.load(self.load_rl_model_path, envs, **train_kwargs)
         else:
-            self.model = self.model_class(policy_fn, envs, **train_kwargs,tensorboard_log="/home/tete/train/")
+            self.model = self.model_class(AEPolicy, envs, **train_kwargs,tensorboard_log="/home/tete/poar/")
         self.model.learn(total_timesteps=args.num_timesteps, seed=args.seed, callback=callback)
         envs.close()
