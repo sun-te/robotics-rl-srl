@@ -180,8 +180,8 @@ class POAR(ActorCriticRLModel):
                             tf.clip_by_value(train_model.value_flat - self.old_vpred_ph,
                                              - self.clip_range_vf_ph, self.clip_range_vf_ph)
 
-                    ae_loss = tf.square(train_model.processed_obs - self.reconstruct_ph)
-                    self.ae_loss = 0.5 * tf.reduce_mean(ae_loss)
+                    ae_loss = tf.square(train_model.processed_obs - train_model.reconstruct_obs)
+                    self.ae_loss = 5 * tf.reduce_mean(ae_loss)
 
                     vf_losses1 = tf.square(vpred - self.rewards_ph)
                     vf_losses2 = tf.square(vpred_clipped - self.rewards_ph)
@@ -195,7 +195,7 @@ class POAR(ActorCriticRLModel):
                     self.clipfrac = tf.reduce_mean(tf.cast(tf.greater(tf.abs(ratio - 1.0),
                                                                       self.clip_range_ph), tf.float32))
                     # loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef + self.ae_loss
-                    loss = 1.e-6 * (self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef) + self.ae_loss*100
+                    loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef + self.ae_loss
                     tf.summary.scalar('entropy_loss', self.entropy)
                     tf.summary.scalar('policy_gradient_loss', self.pg_loss)
                     tf.summary.scalar('value_function_loss', self.vf_loss)
@@ -214,6 +214,7 @@ class POAR(ActorCriticRLModel):
                         grads, _grad_norm = tf.clip_by_global_norm(grads, self.max_grad_norm)
                     grads = list(zip(grads, self.params))
                 trainer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_ph, epsilon=1e-5)
+                # trainer = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate_ph)
                 self._train = trainer.apply_gradients(grads)
                 self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac',
                                    'reconstruction_loss']
@@ -240,7 +241,6 @@ class POAR(ActorCriticRLModel):
                             tf.summary.image('observation', train_model.obs_ph)
                         else:
                             tf.summary.histogram('observation', train_model.obs_ph)
-
                 self.train_model = train_model
                 self.act_model = act_model
                 self.step = act_model.step
@@ -334,19 +334,20 @@ class POAR(ActorCriticRLModel):
             # buffer = Buffer(env=self.env, n_steps=self.n_steps, size=self.buffer_size)
             n_updates = total_timesteps // self.n_batch
             for update in range(1, n_updates + 1):
-                if(update == n_updates -2):
-                    tt()
+
                 assert self.n_batch % self.nminibatches == 0
                 batch_size = self.n_batch // self.nminibatches
                 t_start = time.time()
                 frac = 1.0 - (update - 1.0) / n_updates
                 lr_now = self.learning_rate(frac)
+                # lr_now = self.learning_rate(1)
                 cliprange_now = self.cliprange(frac)
                 cliprange_vf_now = cliprange_vf(frac)
                 # true_reward is the reward without discount
                 obs, ae_obs, returns, masks, actions, values, neglogpacs, states, ep_infos, true_reward, oo,po = runner.run()
-                # if((update-1) % (n_updates//100) == 0):
-                #     tt()
+                if update % (n_updates//20) == 0 :
+                    plt.imshow(oo[0])
+                    plt.savefig("reconstruction{}".format(update)+".png")
                 self.num_timesteps += self.n_batch
                 ep_info_buf.extend(ep_infos)
                 mb_loss_vals = []

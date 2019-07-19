@@ -132,7 +132,7 @@ def conv(input_tensor, scope, *, n_filters, filter_size, stride,
     bias_var_shape = [n_filters] if one_dim_bias else [1, n_filters, 1, 1]
     n_input = input_tensor.get_shape()[channel_ax].value
     wshape = [filter_height, filter_width, n_input, n_filters]
-    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+    with tf.variable_scope(scope):
         weight = tf.get_variable("w", wshape, initializer=ortho_init(init_scale))
         bias = tf.get_variable("b", bias_var_shape, initializer=tf.constant_initializer(0.0))
         if not one_dim_bias and data_format == 'NHWC':
@@ -151,7 +151,7 @@ def linear(input_tensor, scope, n_hidden, *, init_scale=1.0, init_bias=0.0):
     :param init_bias: (int) The initialization offset bias
     :return: (TensorFlow Tensor) fully connected layer
     """
-    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+    with tf.variable_scope(scope):
         n_input = input_tensor.get_shape()[1].value
         weight = tf.get_variable("w", [n_input, n_hidden], initializer=ortho_init(init_scale))
         bias = tf.get_variable("b", [n_hidden], initializer=tf.constant_initializer(init_bias))

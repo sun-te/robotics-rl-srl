@@ -13,8 +13,8 @@ from state_representation.episode_saver import EpisodeSaver
 MAX_STEPS = 250  # WARNING: should be also change in __init__.py (timestep_limit)
 # Terminate the episode if the arm is outside the safety sphere during too much time
 REWARD_DIST_THRESHOLD = 0.4  # Min distance to target before finishing an episode
-RENDER_HEIGHT = 224
-RENDER_WIDTH = 224
+RENDER_HEIGHT = 128
+RENDER_WIDTH = 128
 N_DISCRETE_ACTIONS = 4
 
 DELTA_POS = 0.2  # DELTA_POS

@@ -274,11 +274,11 @@ def main():
                         help="New learning rate ratio to train a pretrained agent")
     parser.add_argument('--ewc-weight', type=float, default=1.e4,
                         help="The weight we attribute for the old tasks")
-
+    parser.add_argument('--gpu', type=str, default='0', help='The cpu we want to use')
     # Ignore unknown args for now
     args, unknown = parser.parse_known_args()
     env_kwargs = {}
-
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     # LOAD SRL models list
     assert os.path.exists(args.srl_config_file), \
         "Error: cannot load \"--srl-config-file {}\", file not found!".format(args.srl_config_file)

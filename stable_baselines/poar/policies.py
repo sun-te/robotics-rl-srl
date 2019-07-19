@@ -3,10 +3,10 @@ from itertools import zip_longest
 
 import numpy as np
 import tensorflow as tf
-
+import keras
 from stable_baselines.a2c.utils import conv, linear, conv_to_fc, batch_to_seq, seq_to_batch, lstm
 from stable_baselines.common.policies import ActorCriticPolicy, RecurrentActorCriticPolicy
-from stable_baselines.poar.utils import conv_t
+from stable_baselines.poar.utils import cnn_autoencoder2, cnn_autoencoder0
 from srl_zoo.utils import printYellow, printGreen, printRed
 from ipdb import set_trace as tt
 
@@ -50,51 +50,6 @@ class AutoEncoder:
         return tf.reshape(self.decode(self.encode(obs)), obs.shape)
 
 
-class CNNAutoEncoer(AutoEncoder):
-    def __init__(self, state_dim=512):
-        super(CNNAutoEncoer, self).__init__()
-        self.state_dim = state_dim
-        self.hidden_size = None
-
-    def encode(self, obs, **kwargs):
-        relu = tf.nn.relu
-        layer1 = conv(obs, 'e1', n_filters=64, filter_size=8, stride=4, init_scale=np.square(2), **kwargs)
-        layer1 = relu(batch_norm(layer1))  # (?, 55, 55, 64)
-
-        layer2 = conv(layer1, 'e2', n_filters=64, filter_size=4, stride=2, init_scale=np.square(2), **kwargs)
-        layer2 = relu(batch_norm(layer2))  # (?, 26, 26, 64)
-
-        layer3 = conv(layer2, 'e3', n_filters=64, filter_size=3, stride=1, init_scale=np.square(2), **kwargs)
-        layer3 = relu(batch_norm(layer3))  # (?, 24, 24, 64)
-
-        layer4 = conv_to_fc(layer3)
-        layers = [layer3, layer2, layer1, obs]
-
-        self.hidden_size = [layer4.get_shape()[1]] + [tf.shape(arr) for arr in layers]
-
-        return relu(linear(layer4, 'e_fc', n_hidden=self.state_dim, init_scale=np.sqrt(2)))
-
-    def decode(self, x, **kwargs):
-        relu = tf.nn.relu
-        layer1 = relu(linear(x, 'd_fc', n_hidden=self.hidden_size[0], init_scale=np.sqrt(2)))
-        layer1 = tf.reshape(layer1, self.hidden_size[1])
-
-        layer2 = conv_t(layer1, 'd1', n_filters=64, filter_size=3, stride=1, output_shape=self.hidden_size[2],
-                        init_scale=np.square(2), **kwargs)
-        layer2 = relu(batch_norm(layer2))
-
-        layer3 = conv_t(layer2, 'd2', n_filters=64, filter_size=4, stride=2, output_shape=self.hidden_size[3],
-                        init_scale=np.square(2), **kwargs)
-        layer3 = relu(batch_norm(layer3))
-
-        layer4 = conv_t(layer3, 'd3', n_filters=3, filter_size=8, stride=4, output_shape=self.hidden_size[4],
-                        init_scale=np.square(2), **kwargs)
-        return tf.nn.sigmoid(conv(layer4, scope='d4', n_filters=3, filter_size=3, stride=1, pad='SAME',
-                               init_scale=np.square(2),  **kwargs))
-
-    def forward(self, obs, **kwargs):
-        latent_obs = self.encode(obs, **kwargs)
-        return self.decode(latent_obs, **kwargs)
 
 
 def mlp_extractor(flat_observations, net_arch, act_fun):
@@ -184,8 +139,6 @@ class FeedForwardPolicy(ActorCriticPolicy):
                                                 scale=(feature_extraction == "cnn"))
         self._kwargs_check(feature_extraction, kwargs)
 
-        self.autoencoder = CNNAutoEncoer(state_dim=512)
-
         if layers is not None:
             warnings.warn("Usage of the `layers` parameter is deprecated! Use net_arch instead "
                           "(it has a different semantics though).", DeprecationWarning)
@@ -198,9 +151,11 @@ class FeedForwardPolicy(ActorCriticPolicy):
             net_arch = [dict(vf=layers, pi=layers)]
         with tf.variable_scope("model", reuse=reuse):
             # By default, we consider the inputs are raw_pixels
-            self.reconstruct_obs = self.autoencoder.forward(self.processed_obs, **kwargs)
-            latent_obs = self.autoencoder.encode(self.processed_obs, **kwargs)
-            pi_latent, vf_latent = mlp_extractor(tf.layers.flatten(latent_obs), net_arch, act_fun)
+            # self.reconstruct_obs, latent_obs= cnn_autoencoder(self.processed_obs, **kwargs)
+            obs_shape = tf.shape(self.processed_obs)
+            self.reconstruct_obs, latent_obs = cnn_autoencoder0(obs_shape, self.processed_obs, **kwargs)
+            pi_latent = vf_latent = nature_cnn( self.processed_obs, **kwargs)
+            #pi_latent, vf_latent = mlp_extractor(tf.layers.flatten(latent_obs), net_arch, act_fun)
             self._value_fn = linear(vf_latent, 'vf', 1)
 
             self._proba_distribution, self._policy, self.q_value = \
@@ -211,12 +166,12 @@ class FeedForwardPolicy(ActorCriticPolicy):
     def step(self, obs, state=None, mask=None, deterministic=False):
         if deterministic:
             action, ae_obs, value, neglogp, p_obs = self.sess.run([self.deterministic_action, self.reconstruct_obs,
-                                                    self.value_flat, self.neglogp,self.processed_obs],
-                                                   {self.obs_ph: obs})
+                                                                   self.value_flat, self.neglogp, self.processed_obs],
+                                                                  {self.obs_ph: obs})
         else:
             action, ae_obs, value, neglogp, p_obs = self.sess.run([self.action, self.reconstruct_obs,
-                                                            self.value_flat, self.neglogp, self.processed_obs],
-                                                   {self.obs_ph: obs})
+                                                                   self.value_flat, self.neglogp, self.processed_obs],
+                                                                  {self.obs_ph: obs})
         return action, ae_obs, value, self.initial_state, neglogp, p_obs
 
     def proba_step(self, obs, state=None, mask=None):

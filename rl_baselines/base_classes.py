@@ -264,11 +264,12 @@ class StableBaselinesRLObject(BaseRLObject):
                      'lnlstm': MlpLnLstmPolicy,
                      'progressive':ProgressiveMlpPolicy
                      }[args.policy]
-
+        if args.algo == 'poar':
+            policy_fn = AEPolicy
         if self.load_rl_model_path is not None:
             print("Load trained model from the path: ", self.load_rl_model_path)
             self.model = self.model_class.load(self.load_rl_model_path, envs, **train_kwargs)
         else:
-            self.model = self.model_class(AEPolicy, envs, **train_kwargs,tensorboard_log="/home/tete/poar/")
+            self.model = self.model_class(policy_fn, envs, **train_kwargs,tensorboard_log="/home/tete/poar/")
         self.model.learn(total_timesteps=args.num_timesteps, seed=args.seed, callback=callback)
         envs.close()
