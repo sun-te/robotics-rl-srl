@@ -6,8 +6,8 @@ import tensorflow as tf
 import keras
 from stable_baselines.a2c.utils import conv, linear, conv_to_fc, batch_to_seq, seq_to_batch, lstm
 from stable_baselines.common.policies import ActorCriticPolicy, RecurrentActorCriticPolicy
-from stable_baselines.poar.utils import cnn_autoencoder2, cnn_autoencoder0
-from srl_zoo.utils import printYellow, printGreen, printRed
+from stable_baselines.poar.utils import cnn_autoencoder2, cnn_autoencoder0, autoencoder
+
 from ipdb import set_trace as tt
 
 _BATCH_NORM_DECAY = 0.997
@@ -28,26 +28,6 @@ def nature_cnn(scaled_images, **kwargs):
     layer_3 = activ(conv(layer_2, 'c3', n_filters=64, filter_size=3, stride=1, init_scale=np.sqrt(2), **kwargs))
     layer_3 = conv_to_fc(layer_3)
     return activ(linear(layer_3, 'fc1', n_hidden=512, init_scale=np.sqrt(2)))
-
-
-def batch_norm(inputs):
-    return tf.compat.v1.layers.batch_normalization(
-        inputs=inputs, axis=3, momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON,
-        center=True, scale=True, fused=True)
-
-
-class AutoEncoder:
-    def __init__(self):
-        pass
-
-    def encode(self, obs):
-        pass
-
-    def decode(self, latent_x):
-        pass
-
-    def forward(self, obs):
-        return tf.reshape(self.decode(self.encode(obs)), obs.shape)
 
 
 
@@ -151,11 +131,10 @@ class FeedForwardPolicy(ActorCriticPolicy):
             net_arch = [dict(vf=layers, pi=layers)]
         with tf.variable_scope("model", reuse=reuse):
             # By default, we consider the inputs are raw_pixels
-            # self.reconstruct_obs, latent_obs= cnn_autoencoder(self.processed_obs, **kwargs)
-            obs_shape = tf.shape(self.processed_obs)
-            self.reconstruct_obs, latent_obs = cnn_autoencoder0(obs_shape, self.processed_obs, **kwargs)
-            pi_latent = vf_latent = nature_cnn( self.processed_obs, **kwargs)
-            #pi_latent, vf_latent = mlp_extractor(tf.layers.flatten(latent_obs), net_arch, act_fun)
+            self.reconstruct_obs, latent_obs = autoencoder(self.processed_obs, state_dim=512)
+            #self.reconstruct_obs, latent_obs = cnn_autoencoder2(self.processed_obs, state_dim=200, **kwargs)
+            #pi_latent = vf_latent = nature_cnn(self.processed_obs, **kwargs)
+            pi_latent, vf_latent = mlp_extractor(latent_obs, net_arch, act_fun)
             self._value_fn = linear(vf_latent, 'vf', 1)
 
             self._proba_distribution, self._policy, self.q_value = \

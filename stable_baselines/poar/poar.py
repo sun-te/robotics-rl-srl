@@ -125,7 +125,6 @@ class POAR(ActorCriticRLModel):
             self.graph = tf.Graph()
             with self.graph.as_default():
                 self.sess = tf_util.make_session(num_cpu=n_cpu, graph=self.graph)
-
                 n_batch_step = None
                 n_batch_train = None
                 if issubclass(self.policy, RecurrentActorCriticPolicy):
@@ -181,7 +180,7 @@ class POAR(ActorCriticRLModel):
                                              - self.clip_range_vf_ph, self.clip_range_vf_ph)
 
                     ae_loss = tf.square(train_model.processed_obs - train_model.reconstruct_obs)
-                    self.ae_loss = 5 * tf.reduce_mean(ae_loss)
+                    self.ae_loss = tf.reduce_mean(ae_loss)
 
                     vf_losses1 = tf.square(vpred - self.rewards_ph)
                     vf_losses2 = tf.square(vpred_clipped - self.rewards_ph)
@@ -195,7 +194,7 @@ class POAR(ActorCriticRLModel):
                     self.clipfrac = tf.reduce_mean(tf.cast(tf.greater(tf.abs(ratio - 1.0),
                                                                       self.clip_range_ph), tf.float32))
                     # loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef + self.ae_loss
-                    loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef + self.ae_loss
+                    loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef+ self.ae_loss
                     tf.summary.scalar('entropy_loss', self.entropy)
                     tf.summary.scalar('policy_gradient_loss', self.pg_loss)
                     tf.summary.scalar('value_function_loss', self.vf_loss)
@@ -345,9 +344,9 @@ class POAR(ActorCriticRLModel):
                 cliprange_vf_now = cliprange_vf(frac)
                 # true_reward is the reward without discount
                 obs, ae_obs, returns, masks, actions, values, neglogpacs, states, ep_infos, true_reward, oo,po = runner.run()
-                if update % (n_updates//20) == 0 :
+                if update % (n_updates//100) == 0 :
                     plt.imshow(oo[0])
-                    plt.savefig("reconstruction{}".format(update)+".png")
+                    plt.savefig("reconstruction/reconstruction{}".format(update)+".png")
                 self.num_timesteps += self.n_batch
                 ep_info_buf.extend(ep_infos)
                 mb_loss_vals = []
