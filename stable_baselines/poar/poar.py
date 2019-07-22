@@ -250,8 +250,8 @@ class POAR(ActorCriticRLModel):
 
                 self.summary = tf.summary.merge_all()
 
-    def _train_step(self, learning_rate, cliprange, obs, reconstruct_obs, returns, masks, actions, values, neglogpacs,
-                    update, writer, states=None, cliprange_vf=None):
+    def _train_step(self, learning_rate, cliprange, obs, reconstruct_obs, returns, masks, actions,
+                    values, neglogpacs, update, writer, states=None, cliprange_vf=None, next_obs=None,):
         """
         Training of PPO2 Algorithm
 
@@ -280,6 +280,12 @@ class POAR(ActorCriticRLModel):
         if states is not None:
             td_map[self.train_model.states_ph] = states
             td_map[self.train_model.dones_ph] = masks
+
+        # Running for srl model
+        if next_obs is not None:
+            td_map[self.train_model.next_obs_ph] = next_obs
+            td_map[self.train_model.dones_ph] = masks
+            td_map[self.train_model.action_ph] = actions
 
         if cliprange_vf is not None and cliprange_vf >= 0:
             td_map[self.clip_range_vf_ph] = cliprange_vf
@@ -343,8 +349,8 @@ class POAR(ActorCriticRLModel):
                 cliprange_now = self.cliprange(frac)
                 cliprange_vf_now = cliprange_vf(frac)
                 # true_reward is the reward without discount
-                obs, ae_obs, returns, masks, actions, values, neglogpacs, states, ep_infos, true_reward, oo,po = runner.run()
-                # tt()
+                # mb_obs, mb_ae_obs, mb_returns, mb_dones, mb_actions
+                obs, ae_obs, returns, masks, actions, values, neglogpacs, states, ep_infos, true_reward = runner.run()
                 # if update % (n_updates//100) == 0 :
                 #     plt.imshow(oo[0])
                 #     plt.savefig("reconstruction/reconstruction{}".format(update)+".png")
@@ -355,7 +361,7 @@ class POAR(ActorCriticRLModel):
                     update_fac = self.n_batch // self.nminibatches // self.noptepochs + 1
                     inds = np.arange(self.n_batch)
                     for epoch_num in range(self.noptepochs):
-                        # np.random.shuffle(inds)
+                        np.random.shuffle(inds)
                         for start in range(0, self.n_batch, batch_size):
                             timestep = self.num_timesteps // update_fac + ((self.noptepochs * self.n_batch + epoch_num *
                                                                             self.n_batch + start) // batch_size)
@@ -478,7 +484,7 @@ class Runner(AbstractEnvRunner):
         mb_states = self.states
         ep_infos = []
         for _ in range(self.n_steps):
-            actions, ae_obs, values, self.states, neglogpacs, p_obs = self.model.step(self.obs, self.states, self.dones)
+            actions, ae_obs, values, self.states, neglogpacs = self.model.step(self.obs, self.states, self.dones)
             mb_obs.append(self.obs.copy())  # 每次添加num_cpu个 128*num_cpu (n_env)
             mb_actions.append(actions)
             mb_values.append(values)
@@ -523,8 +529,9 @@ class Runner(AbstractEnvRunner):
         mb_obs, mb_ae_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs, true_reward = \
             map(swap_and_flatten, (mb_obs, mb_ae_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs,
                                    true_reward))
+
         return (mb_obs, mb_ae_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs,
-                mb_states, ep_infos, true_reward, ae_obs, p_obs)
+                mb_states, ep_infos, true_reward)
 
 
 def get_schedule_fn(value_schedule):

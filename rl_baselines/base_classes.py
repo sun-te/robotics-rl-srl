@@ -3,7 +3,7 @@ import pickle
 import re
 from stable_baselines.common.policies import CnnPolicy, CnnLstmPolicy, CnnLnLstmPolicy, MlpPolicy, MlpLstmPolicy, \
     MlpLnLstmPolicy
-from stable_baselines.poar.policies import AEPolicy, AEBNPolicy, AEMlpPolicy
+from stable_baselines.poar.policies import AEPolicy, AEBNPolicy, AEMlpPolicy, SRLPolicy
 from rl_baselines.progressive_nn.prnn_policy import ProgressiveMlpPolicy
 from rl_baselines.utils import createEnvs
 
@@ -267,7 +267,8 @@ class StableBaselinesRLObject(BaseRLObject):
         if args.algo == 'poar':
             policy_fn = {'autoencoder': AEPolicy,
                          'autoencoderBN': AEBNPolicy,
-                         'autoencoderMlp': AEMlpPolicy
+                         'autoencoderMlp': AEMlpPolicy,
+                         'srl':SRLPolicy
                          }[args.structure]
         if self.load_rl_model_path is not None:
             print("Load trained model from the path: ", self.load_rl_model_path)
