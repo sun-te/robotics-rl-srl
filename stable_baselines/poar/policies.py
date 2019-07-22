@@ -6,9 +6,8 @@ import tensorflow as tf
 from stable_baselines.a2c.utils import conv, linear, conv_to_fc, batch_to_seq, seq_to_batch, lstm
 from stable_baselines.common.policies import ActorCriticPolicy, RecurrentActorCriticPolicy
 from stable_baselines.common.input import observation_input
-from stable_baselines.poar.utils import nature_autoencoder, bn_autoencoder
+from stable_baselines.poar.utils import nature_autoencoder, bn_autoencoder, inverse_net, forward_net
 from gym.spaces.discrete import Discrete
-from gym.spaces.box import Box
 from ipdb import set_trace as tt
 
 _BATCH_NORM_DECAY = 0.997
@@ -238,11 +237,9 @@ class SRLPolicy(ActorCriticPolicy):
         # placeholder for the next observation
         self.next_obs_ph, self.next_processed_obs = observation_input(ob_space, n_batch, name='NextObs',
                                                                       scale=(feature_extraction == "cnn"))
-        if isinstance(ac_space, Discrete):  # discrete action space
-            self._action_ph = tf.placeholder(dtype=ac_space.dtype, shape=(n_batch,) + (ac_space.n,), name="action_ph")
-        elif isinstance(ac_space, Box):  # continuous action
-            self._action_ph = tf.placeholder(dtype=ac_space.dtype, shape=(n_batch,) + ac_space.shape, name="action_ph")
 
+        self._action_ph = tf.placeholder(dtype=ac_space.dtype, shape=(n_batch,) + ac_space.shape, name="action_ph")
+        self.srl_action = tf.one_hot(self._action_ph, ac_space.n) if isinstance(ac_space, Discrete) else self._action_ph
         self.dones_ph = tf.placeholder(shape=(n_batch,), dtype=tf.int32, name="Dns")
 
 
@@ -258,11 +255,12 @@ class SRLPolicy(ActorCriticPolicy):
             net_arch = [dict(vf=layers, pi=layers)]
         with tf.variable_scope("model", reuse=reuse):
             # By default, we consider the inputs are raw_pixels
-            self.reconstruct_obs, self.latent_obs = nature_autoencoder(self.processed_obs, state_dim=512, name='Obs')
-            self.next_reconstruct_obs, next_latent_obs = nature_autoencoder(self.next_processed_obs, state_dim=512, name='NObs')
-
-
-            pi_latent = vf_latent = self.latent_obs
+            self.reconstruct_obs, latent_obs = nature_autoencoder(self.processed_obs, state_dim=512, name='Obs')
+            # We make nex_latent_obs to be observable from outside to compute the loss with srl_state
+            self.next_reconstruct_obs, self.next_latent_obs = nature_autoencoder(self.next_processed_obs, state_dim=512, name='NextObs')
+            self.srl_action = inverse_net(latent_obs[:], self.next_latent_obs[:], ac_space)
+            self.srl_state = forward_net(latent_obs[:], self._action_ph, ac_space)
+            pi_latent = vf_latent = latent_obs
 
             #self.reconstruct_obs, latent_obs = cnn_autoencoder2(self.processed_obs, state_dim=200, **kwargs)
             #pi_latent = vf_latent = nature_cnn(self.processed_obs, **kwargs)
@@ -275,16 +273,17 @@ class SRLPolicy(ActorCriticPolicy):
 
         self._setup_init()
 
-
     def step(self, obs, next_obs=None, state=None, mask=None, deterministic=False):
         if deterministic:
-            action, ae_obs, value, neglogp = self.sess.run([self.deterministic_action, self.reconstruct_obs,
-                                                                   self.value_flat, self.neglogp],
-                                                                  {self.obs_ph: obs, self.next_obs_ph:obs})
+            action, ae_obs, value, neglogp, srl_action = self.sess.run([self.deterministic_action, self.reconstruct_obs,
+                                                                   self.value_flat, self.neglogp, self.srl_action],
+                                                                  {self.obs_ph: obs, self.next_obs_ph: obs})
         else:
-            action, ae_obs, value, neglogp = self.sess.run([self.action, self.reconstruct_obs,
-                                                                   self.value_flat, self.neglogp],
-                                                                  {self.obs_ph: obs, self.next_obs_ph:obs})
+            action, ae_obs, value, neglogp, srl_action = self.sess.run([self.action, self.reconstruct_obs,
+                                                                   self.value_flat, self.neglogp, self.srl_action],
+                                                                  {self.obs_ph: obs, self.next_obs_ph: obs})
+        srl_state = self.sess.run(self.srl_state, {self.obs_ph: obs, self._action_ph: action} )
+        tt()
         return action, ae_obs, value, self.initial_state, neglogp
 
     def proba_step(self, obs, state=None, mask=None):

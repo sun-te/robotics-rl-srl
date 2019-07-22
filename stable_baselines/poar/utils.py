@@ -1,5 +1,7 @@
 import tensorflow as tf
 
+from gym.spaces.discrete import Discrete
+from gym.spaces.box import Box
 from stable_baselines.a2c.utils import ortho_init, conv, linear, conv_to_fc
 import numpy as np
 from ipdb import set_trace as tt
@@ -152,3 +154,31 @@ def nature_autoencoder(obs, state_dim, name=''):
     output = tf.nn.sigmoid(conv(scope=name+'reconstruction', input_tensor=d3, n_filters=3, filter_size=3, stride=1, pad='SAME'))
     return output, latent
 
+def inverse_net(state, next_state, ac_space):
+    """
+    return the prediction of the action
+    :param state:
+    :param next_state:
+    :param ac_space:
+    :return:
+    """
+    activation = tf.nn.relu
+    concat_state = tf.concat([state, next_state], axis=1, name='concat_state')
+    with tf.variable_scope("inverse"):
+        layer1 = activation(linear(input_tensor=concat_state, scope='fc1', n_hidden=64, init_scale=np.sqrt(2)))
+        layer2 = activation(linear(input_tensor=layer1, scope='fc2', n_hidden=64, init_scale=np.sqrt(2)))
+        if isinstance(ac_space, Box):  # TODO: for the continuous action
+            return linear(input_tensor=layer2, scope='srl_action', n_hidden=ac_space.shape)
+        else:  # discrete action
+            return tf.nn.softmax(linear(input_tensor=layer2, scope='srl_action', n_hidden=ac_space.n))
+
+def forward_net(state, action, ac_space):
+    activation = tf.nn.relu
+    if isinstance(ac_space, Box):
+        concat_state_action = tf.concat([state, action], axis=1, name='state_action')
+    else:
+        concat_state_action = tf.concat([state, tf.one_hot(action, ac_space.n)],axis=1, name='state_action')
+    with tf.variable_scope("forward"):
+        layer1 = activation(linear(input_tensor=concat_state_action, scope='fc1', n_hidden=64, init_scale=np.sqrt(2)))
+        layer2 = activation(linear(input_tensor=layer1, scope='fc2', n_hidden=64, init_scale=np.sqrt(2)))
+        return linear(input_tensor=layer2, scope='srl_state', n_hidden=state.get_shape()[-1])
