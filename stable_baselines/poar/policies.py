@@ -3,10 +3,9 @@ from itertools import zip_longest
 
 import numpy as np
 import tensorflow as tf
-import keras
 from stable_baselines.a2c.utils import conv, linear, conv_to_fc, batch_to_seq, seq_to_batch, lstm
 from stable_baselines.common.policies import ActorCriticPolicy, RecurrentActorCriticPolicy
-from stable_baselines.poar.utils import cnn_autoencoder2, cnn_autoencoder0, autoencoder
+from stable_baselines.poar.utils import nature_autoencoder, bn_autoencoder
 
 from ipdb import set_trace as tt
 
@@ -114,7 +113,7 @@ class FeedForwardPolicy(ActorCriticPolicy):
     """
 
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, layers=None, net_arch=None,
-                 act_fun=tf.tanh, feature_extraction="cnn", **kwargs):
+                 act_fun=tf.tanh, feature_extraction="cnn", structure='autoencoder', **kwargs):
         super(FeedForwardPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse,
                                                 scale=(feature_extraction == "cnn"))
         self._kwargs_check(feature_extraction, kwargs)
@@ -131,10 +130,19 @@ class FeedForwardPolicy(ActorCriticPolicy):
             net_arch = [dict(vf=layers, pi=layers)]
         with tf.variable_scope("model", reuse=reuse):
             # By default, we consider the inputs are raw_pixels
-            self.reconstruct_obs, latent_obs = autoencoder(self.processed_obs, state_dim=512)
+            if structure == 'autoencoder':
+                self.reconstruct_obs, latent_obs = nature_autoencoder(self.processed_obs, state_dim=512)
+                pi_latent = vf_latent = latent_obs
+            elif structure == 'autoencoder_bn':
+                self.reconstruct_obs, latent_obs = bn_autoencoder(self.processed_obs, state_dim=512)
+                pi_latent = vf_latent = latent_obs
+            elif structure == 'autoencoder_mlp':
+                self.reconstruct_obs, latent_obs = nature_autoencoder(self.processed_obs, state_dim=512)
+                pi_latent, vf_latent = mlp_extractor(latent_obs, net_arch, act_fun)
             #self.reconstruct_obs, latent_obs = cnn_autoencoder2(self.processed_obs, state_dim=200, **kwargs)
             #pi_latent = vf_latent = nature_cnn(self.processed_obs, **kwargs)
-            pi_latent, vf_latent = mlp_extractor(latent_obs, net_arch, act_fun)
+
+
             self._value_fn = linear(vf_latent, 'vf', 1)
 
             self._proba_distribution, self._policy, self.q_value = \
@@ -161,23 +169,22 @@ class FeedForwardPolicy(ActorCriticPolicy):
 
 
 class AEPolicy(FeedForwardPolicy):
-    """
-    Policy object that implements actor critic, using a CNN (the nature CNN)
-
-    :param sess: (TensorFlow session) The current TensorFlow session
-    :param ob_space: (Gym Space) The observation space of the environment
-    :param ac_space: (Gym Space) The action space of the environment
-    :param n_env: (int) The number of environments to run
-    :param n_steps: (int) The number of steps to run for each environment
-    :param n_batch: (int) The number of batch to run (n_envs * n_steps)
-    :param reuse: (bool) If the policy is reusable or not
-    :param _kwargs: (dict) Extra keyword arguments for the nature CNN feature extraction
-    """
-
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
         super(AEPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
-                                        feature_extraction="cnn", **_kwargs)
+                                        feature_extraction='cnn', structure='autoencoder', **_kwargs)
 
+
+
+class AEBNPolicy(FeedForwardPolicy):
+    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
+        super(AEBNPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
+                                        feature_extraction='cnn', structure='autoencoder_bn', **_kwargs)
+
+
+class AEMlpPolicy(FeedForwardPolicy):
+    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
+        super(AEMlpPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
+                                        feature_extraction='cnn', structure='autoencoder_mlp', **_kwargs)
 
 
 class MlpPolicy(FeedForwardPolicy):

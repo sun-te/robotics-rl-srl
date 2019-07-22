@@ -116,7 +116,24 @@ def keras_activ_norm_convt(input_tensor, filters, kernel_size, strides, padding,
         keras.layers.Conv2DTranspose(filters, kernel_size, strides, padding)(input_tensor))
     return activation(l1)
 
-def autoencoder(obs, state_dim):
+def bn_autoencoder(obs, state_dim):
+    activation = tf.nn.relu
+    e1 = activation(batch_norm(conv(scope='e1', input_tensor=obs, n_filters=64, filter_size=8, stride=4, pad='SAME')))
+    e2 = activation(batch_norm(conv(scope='e2', input_tensor=e1, n_filters=64, filter_size=4, stride=2, pad='SAME')))
+    e3 = activation(batch_norm(conv(scope='e3', input_tensor=e2, n_filters=64, filter_size=4, stride=2, pad='SAME')))
+
+#    m3 = tf.layers.max_pooling2d(e3, pool_size=2, strides=2)
+    m3_flat = conv_to_fc(e3)
+    latent = linear(scope='latent', input_tensor=m3_flat, n_hidden=state_dim)
+
+    d0 =tf.reshape(linear(scope='deocder_fc', input_tensor=latent, n_hidden=m3_flat.get_shape()[-1]), shape=tf.shape(e3))
+    d1 = activation(batch_norm(tf.layers.conv2d_transpose(d0, filters=64, kernel_size=4, strides=2, padding='same')))
+    d2 = activation(batch_norm(tf.layers.conv2d_transpose(d1, filters=64, kernel_size=4, strides=2, padding='same')))
+    d3 = activation(batch_norm(tf.layers.conv2d_transpose(d2, filters=64, kernel_size=8, strides=4, padding='same')))
+    output = tf.nn.sigmoid(conv(scope='reconstruction', input_tensor=d3, n_filters=3, filter_size=3, stride=1, pad='SAME'))
+    return output, latent
+
+def autoencoder0(obs, state_dim):
     activation = tf.nn.relu
     e1 = activation(batch_norm(conv(scope='e1', input_tensor=obs, n_filters=64, filter_size=3, stride=1, pad='SAME')))
     m1 = tf.layers.max_pooling2d(e1, pool_size=2, strides=2)
@@ -129,13 +146,28 @@ def autoencoder(obs, state_dim):
     latent = linear(scope='latent', input_tensor=m3_flat, n_hidden=state_dim)
 
     d0 =tf.reshape(linear(scope='deocder_fc', input_tensor=latent, n_hidden=m3_flat.get_shape()[-1]), shape=tf.shape(m3))
-    d1 = activation(batch_norm(tf.layers.conv2d_transpose(d0, filters=128, kernel_size=3, strides=2, padding='same')))
+    d1 = activation(batch_norm(tf.layers.conv2d_transpose(d0, filters=128, keroonel_size=3, strides=2, padding='same')))
     d2 = activation(batch_norm(tf.layers.conv2d_transpose(d1, filters=64, kernel_size=3, strides=2, padding='same')))
     d3 = activation(batch_norm(tf.layers.conv2d_transpose(d2, filters=64, kernel_size=3, strides=2, padding='same')))
     output = tf.nn.sigmoid(conv(scope='reconstruction', input_tensor=d3, n_filters=3, filter_size=3, stride=1, pad='SAME'))
     return output, latent
 
+def nature_autoencoder(obs, state_dim):
+    activation = tf.nn.relu
+    e1 = activation(conv(scope='e1', input_tensor=obs, n_filters=64, filter_size=8, stride=4, pad='SAME'))
+    e2 = activation(conv(scope='e2', input_tensor=e1, n_filters=64, filter_size=4, stride=2, pad='SAME'))
+    e3 = activation(conv(scope='e3', input_tensor=e2, n_filters=64, filter_size=3, stride=1, pad='SAME'))
 
+    #m3 = tf.layers.max_pooling2d(e3, pool_size=2, strides=2)
+    m3_flat = conv_to_fc(e3)
+    latent = linear(scope='latent', input_tensor=m3_flat, n_hidden=state_dim)
+
+    d0 =tf.reshape(linear(scope='deocder_fc', input_tensor=latent, n_hidden=m3_flat.get_shape()[-1]), shape=tf.shape(e3))
+    d1 = activation(batch_norm(tf.layers.conv2d_transpose(d0, filters=64, kernel_size=3, strides=1, padding='same')))
+    d2 = activation(batch_norm(tf.layers.conv2d_transpose(d1, filters=64, kernel_size=4, strides=2, padding='same')))
+    d3 = activation(batch_norm(tf.layers.conv2d_transpose(d2, filters=64, kernel_size=8, strides=4, padding='same')))
+    output = tf.nn.sigmoid(conv(scope='reconstruction', input_tensor=d3, n_filters=3, filter_size=3, stride=1, pad='SAME'))
+    return output, latent
 
 
 def cnn_autoencoder0(obs, state_dim=512, **kwargs):

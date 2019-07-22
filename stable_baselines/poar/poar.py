@@ -193,8 +193,8 @@ class POAR(ActorCriticRLModel):
                     self.approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - self.old_neglog_pac_ph))
                     self.clipfrac = tf.reduce_mean(tf.cast(tf.greater(tf.abs(ratio - 1.0),
                                                                       self.clip_range_ph), tf.float32))
-                    # loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef + self.ae_loss
-                    loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef+ self.ae_loss
+                    loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef +self.ae_loss
+                    # loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef+ self.ae_loss
                     tf.summary.scalar('entropy_loss', self.entropy)
                     tf.summary.scalar('policy_gradient_loss', self.pg_loss)
                     tf.summary.scalar('value_function_loss', self.vf_loss)
@@ -344,9 +344,10 @@ class POAR(ActorCriticRLModel):
                 cliprange_vf_now = cliprange_vf(frac)
                 # true_reward is the reward without discount
                 obs, ae_obs, returns, masks, actions, values, neglogpacs, states, ep_infos, true_reward, oo,po = runner.run()
-                if update % (n_updates//100) == 0 :
-                    plt.imshow(oo[0])
-                    plt.savefig("reconstruction/reconstruction{}".format(update)+".png")
+                # tt()
+                # if update % (n_updates//100) == 0 :
+                #     plt.imshow(oo[0])
+                #     plt.savefig("reconstruction/reconstruction{}".format(update)+".png")
                 self.num_timesteps += self.n_batch
                 ep_info_buf.extend(ep_infos)
                 mb_loss_vals = []
