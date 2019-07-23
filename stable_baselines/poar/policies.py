@@ -1,13 +1,19 @@
 import warnings
 from itertools import zip_longest
 
+
+from abc import abstractmethod
 import numpy as np
 import tensorflow as tf
 from stable_baselines.a2c.utils import conv, linear, conv_to_fc, batch_to_seq, seq_to_batch, lstm
-from stable_baselines.common.policies import ActorCriticPolicy, RecurrentActorCriticPolicy
+from stable_baselines.common.policies import BasePolicy
 from stable_baselines.common.input import observation_input
-from stable_baselines.poar.utils import nature_autoencoder, bn_autoencoder, inverse_net, forward_net
+from stable_baselines.poar.utils import nature_autoencoder, bn_autoencoder, inverse_net, forward_net, autoencoderMP
 from gym.spaces.discrete import Discrete
+
+from stable_baselines.common.distributions import make_proba_dist_type, CategoricalProbabilityDistribution, \
+    MultiCategoricalProbabilityDistribution, DiagGaussianProbabilityDistribution, BernoulliProbabilityDistribution
+
 from ipdb import set_trace as tt
 
 _BATCH_NORM_DECAY = 0.997
@@ -28,8 +34,6 @@ def nature_cnn(scaled_images, **kwargs):
     layer_3 = activ(conv(layer_2, 'c3', n_filters=64, filter_size=3, stride=1, init_scale=np.sqrt(2), **kwargs))
     layer_3 = conv_to_fc(layer_3)
     return activ(linear(layer_3, 'fc1', n_hidden=512, init_scale=np.sqrt(2)))
-
-
 
 
 def mlp_extractor(flat_observations, net_arch, act_fun):
@@ -92,7 +96,130 @@ def mlp_extractor(flat_observations, net_arch, act_fun):
     return latent_policy, latent_value
 
 
-class FeedForwardPolicy(ActorCriticPolicy):
+class SRLActorCriticPolicy(BasePolicy):
+    """
+    Policy object that implements actor critic
+
+    :param sess: (TensorFlow session) The current TensorFlow session
+    :param ob_space: (Gym Space) The observation space of the environment
+    :param ac_space: (Gym Space) The action space of the environment
+    :param n_env: (int) The number of environments to run
+    :param n_steps: (int) The number of steps to run for each environment
+    :param n_batch: (int) The number of batch to run (n_envs * n_steps)
+    :param reuse: (bool) If the policy is reusable or not
+    :param scale: (bool) whether or not to scale the input
+    """
+
+    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, scale=False):
+        super(SRLActorCriticPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse,
+                                                   scale=scale)
+        self._pdtype = make_proba_dist_type(ac_space)
+        self._policy = None
+        self._proba_distribution = None
+        self._value_fn = None
+        self._action = None
+        self._deterministic_action = None
+        self.reconstruct_obs = None
+        self.next_reconstruct_obs = None
+        self.next_processed_obs = None
+        self.srl_action = None
+        self.srl_state = None
+        self.next_latent_obs = None
+
+    def _setup_init(self):
+        """
+        sets up the distibutions, actions, and value
+        """
+        with tf.variable_scope("output", reuse=True):
+            assert self.policy is not None and self.proba_distribution is not None and self.value_fn is not None
+            self._action = self.proba_distribution.sample()
+            self._deterministic_action = self.proba_distribution.mode()
+            self._neglogp = self.proba_distribution.neglogp(self.action)
+            if isinstance(self.proba_distribution, CategoricalProbabilityDistribution):
+                self._policy_proba = tf.nn.softmax(self.policy)
+            elif isinstance(self.proba_distribution, DiagGaussianProbabilityDistribution):
+                self._policy_proba = [self.proba_distribution.mean, self.proba_distribution.std]
+            elif isinstance(self.proba_distribution, BernoulliProbabilityDistribution):
+                self._policy_proba = tf.nn.sigmoid(self.policy)
+            elif isinstance(self.proba_distribution, MultiCategoricalProbabilityDistribution):
+                self._policy_proba = [tf.nn.softmax(categorical.flatparam())
+                                      for categorical in self.proba_distribution.categoricals]
+            else:
+                self._policy_proba = []  # it will return nothing, as it is not implemented
+            self._value_flat = self.value_fn[:, 0]
+
+    @property
+    def pdtype(self):
+        """ProbabilityDistributionType: type of the distribution for stochastic actions."""
+        return self._pdtype
+
+    @property
+    def policy(self):
+        """tf.Tensor: policy output, e.g. logits."""
+        return self._policy
+
+    @property
+    def proba_distribution(self):
+        """ProbabilityDistribution: distribution of stochastic actions."""
+        return self._proba_distribution
+
+    @property
+    def value_fn(self):
+        """tf.Tensor: value estimate, of shape (self.n_batch, 1)"""
+        return self._value_fn
+
+    @property
+    def value_flat(self):
+        """tf.Tensor: value estimate, of shape (self.n_batch, )"""
+        return self._value_flat
+
+    @property
+    def action(self):
+        """tf.Tensor: stochastic action, of shape (self.n_batch, ) + self.ac_space.shape."""
+        return self._action
+
+    @property
+    def deterministic_action(self):
+        """tf.Tensor: deterministic action, of shape (self.n_batch, ) + self.ac_space.shape."""
+        return self._deterministic_action
+
+    @property
+    def neglogp(self):
+        """tf.Tensor: negative log likelihood of the action sampled by self.action."""
+        return self._neglogp
+
+    @property
+    def policy_proba(self):
+        """tf.Tensor: parameters of the probability distribution. Depends on pdtype."""
+        return self._policy_proba
+
+    @abstractmethod
+    def step(self, obs, state=None, mask=None, deterministic=False):
+        """
+        Returns the policy for a single step
+
+        :param obs: ([float] or [int]) The current observation of the environment
+        :param state: ([float]) The last states (used in recurrent policies)
+        :param mask: ([float]) The last masks (used in recurrent policies)
+        :param deterministic: (bool) Whether or not to return deterministic actions.
+        :return: ([float], [float], [float], [float]) actions, values, states, neglogp
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def value(self, obs, state=None, mask=None):
+        """
+        Returns the value for a single step
+
+        :param obs: ([float] or [int]) The current observation of the environment
+        :param state: ([float]) The last states (used in recurrent policies)
+        :param mask: ([float]) The last masks (used in recurrent policies)
+        :return: ([float]) The associated value of the action
+        """
+        raise NotImplementedError
+
+
+class FeedForwardPolicy(SRLActorCriticPolicy):
     """
     Policy object that implements actor critic, using a feed forward neural network.
 
@@ -114,7 +241,7 @@ class FeedForwardPolicy(ActorCriticPolicy):
     """
 
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, layers=None, net_arch=None,
-                 act_fun=tf.tanh, feature_extraction="cnn", structure='autoencoder', **kwargs):
+                 act_fun=tf.tanh, feature_extraction="cnn", structure=None, **kwargs):
         super(FeedForwardPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse,
                                                 scale=(feature_extraction == "cnn"))
         self._kwargs_check(feature_extraction, kwargs)
@@ -140,8 +267,11 @@ class FeedForwardPolicy(ActorCriticPolicy):
             elif structure == 'autoencoder_mlp':
                 self.reconstruct_obs, latent_obs = nature_autoencoder(self.processed_obs, state_dim=512)
                 pi_latent, vf_latent = mlp_extractor(latent_obs, net_arch, act_fun)
+            else:
+                self.reconstruct_obs = self.processed_obs
+                pi_latent = vf_latent = nature_cnn(self.processed_obs, **kwargs)
             #self.reconstruct_obs, latent_obs = cnn_autoencoder2(self.processed_obs, state_dim=200, **kwargs)
-            #pi_latent = vf_latent = nature_cnn(self.processed_obs, **kwargs)
+            #
 
 
             self._value_fn = linear(vf_latent, 'vf', 1)
@@ -153,14 +283,12 @@ class FeedForwardPolicy(ActorCriticPolicy):
 
     def step(self, obs, state=None, mask=None, deterministic=False):
         if deterministic:
-            action, ae_obs, value, neglogp = self.sess.run([self.deterministic_action, self.reconstruct_obs,
-                                                                   self.value_flat, self.neglogp],
+            action, value, neglogp = self.sess.run([self.deterministic_action, self.value_flat, self.neglogp],
                                                                   {self.obs_ph: obs})
         else:
-            action, ae_obs, value, neglogp = self.sess.run([self.action, self.reconstruct_obs,
-                                                                   self.value_flat, self.neglogp],
+            action, value, neglogp = self.sess.run([self.action, self.value_flat, self.neglogp],
                                                                   {self.obs_ph: obs})
-        return action, ae_obs, value, self.initial_state, neglogp
+        return action, value, self.initial_state, neglogp
 
     def proba_step(self, obs, state=None, mask=None):
         return self.sess.run(self.policy_proba, {self.obs_ph: obs})
@@ -168,6 +296,11 @@ class FeedForwardPolicy(ActorCriticPolicy):
     def value(self, obs, state=None, mask=None):
         return self.sess.run(self.value_flat, {self.obs_ph: obs})
 
+
+class NatureCnnPolicy(FeedForwardPolicy):
+    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
+        super(NatureCnnPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
+                                        feature_extraction="cnn", **_kwargs)
 
 class AEPolicy(FeedForwardPolicy):
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
@@ -207,7 +340,7 @@ class MlpPolicy(FeedForwardPolicy):
                                         feature_extraction="mlp", **_kwargs)
 
 
-class SRLPolicy(ActorCriticPolicy):
+class SRLPolicy(SRLActorCriticPolicy):
     """
     Policy object that implements actor critic, using a feed forward neural network.
 
@@ -235,13 +368,10 @@ class SRLPolicy(ActorCriticPolicy):
         self._kwargs_check(feature_extraction, kwargs)
 
         # placeholder for the next observation
-        self.next_obs_ph, self.next_processed_obs = observation_input(ob_space, n_batch, name='NextObs',
-                                                                      scale=(feature_extraction == "cnn"))
-
-        self._action_ph = tf.placeholder(dtype=ac_space.dtype, shape=(n_batch,) + ac_space.shape, name="action_ph")
-        self.srl_action = tf.one_hot(self._action_ph, ac_space.n) if isinstance(ac_space, Discrete) else self._action_ph
-        self.dones_ph = tf.placeholder(shape=(n_batch,), dtype=tf.int32, name="Dns")
-
+        with tf.variable_scope('Next_observation'):
+            self.next_obs_ph, self.next_processed_obs = observation_input(ob_space, n_batch, name='NextObs',
+                                                                          scale=(feature_extraction == "cnn"))
+            self._action_ph = tf.placeholder(dtype=ac_space.dtype, shape=(n_batch,) + ac_space.shape, name="action_ph")
 
         if layers is not None:
             warnings.warn("Usage of the `layers` parameter is deprecated! Use net_arch instead "
@@ -255,19 +385,17 @@ class SRLPolicy(ActorCriticPolicy):
             net_arch = [dict(vf=layers, pi=layers)]
         with tf.variable_scope("model", reuse=reuse):
             # By default, we consider the inputs are raw_pixels
-            self.reconstruct_obs, latent_obs = nature_autoencoder(self.processed_obs, state_dim=512, name='Obs')
-            # We make nex_latent_obs to be observable from outside to compute the loss with srl_state
-            self.next_reconstruct_obs, self.next_latent_obs = nature_autoencoder(self.next_processed_obs, state_dim=512, name='NextObs')
-            self.srl_action = inverse_net(latent_obs[:], self.next_latent_obs[:], ac_space)
-            self.srl_state = forward_net(latent_obs[:], self._action_ph, ac_space)
+            encoder_fn = nature_autoencoder
+            self.next_reconstruct_obs, self.next_latent_obs = encoder_fn(self.next_processed_obs, state_dim=200)
+            self.reconstruct_obs, latent_obs = encoder_fn(self.processed_obs, state_dim=200)
             pi_latent = vf_latent = latent_obs
-
+                # We make nex_latent_obs to be observable from outside to compute the loss with srl_state
+            with tf.variable_scope('SRL'):
+                self.srl_action = inverse_net(latent_obs[..., -2:], self.next_latent_obs[..., -2:], ac_space)
+                self.srl_state = forward_net(latent_obs[...,-4:-2], self._action_ph, ac_space, state_dim=200)
             #self.reconstruct_obs, latent_obs = cnn_autoencoder2(self.processed_obs, state_dim=200, **kwargs)
             #pi_latent = vf_latent = nature_cnn(self.processed_obs, **kwargs)
-
-
             self._value_fn = linear(vf_latent, 'vf', 1)
-
             self._proba_distribution, self._policy, self.q_value = \
                 self.pdtype.proba_distribution_from_latent(pi_latent, vf_latent, init_scale=0.01)
 
@@ -275,16 +403,16 @@ class SRLPolicy(ActorCriticPolicy):
 
     def step(self, obs, next_obs=None, state=None, mask=None, deterministic=False):
         if deterministic:
-            action, ae_obs, value, neglogp, srl_action = self.sess.run([self.deterministic_action, self.reconstruct_obs,
-                                                                   self.value_flat, self.neglogp, self.srl_action],
-                                                                  {self.obs_ph: obs, self.next_obs_ph: obs})
+            action, value, neglogp = self.sess.run([self.deterministic_action, self.value_flat, self.neglogp],
+                                                   {self.obs_ph: obs})
         else:
-            action, ae_obs, value, neglogp, srl_action = self.sess.run([self.action, self.reconstruct_obs,
-                                                                   self.value_flat, self.neglogp, self.srl_action],
-                                                                  {self.obs_ph: obs, self.next_obs_ph: obs})
-        srl_state = self.sess.run(self.srl_state, {self.obs_ph: obs, self._action_ph: action} )
-        tt()
-        return action, ae_obs, value, self.initial_state, neglogp
+            action, value, neglogp = self.sess.run([self.action, self.value_flat, self.neglogp],
+                                                    {self.obs_ph: obs})
+
+
+        p_obs, ae_obs = self.sess.run([self.processed_obs, self.reconstruct_obs], {self.obs_ph: obs})
+        return action, value, self.initial_state, neglogp, ae_obs
+
 
     def proba_step(self, obs, state=None, mask=None):
         return self.sess.run(self.policy_proba, {self.obs_ph: obs})

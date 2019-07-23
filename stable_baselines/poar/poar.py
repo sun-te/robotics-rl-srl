@@ -10,7 +10,7 @@ import tensorflow as tf
 from stable_baselines import logger
 from stable_baselines.common import explained_variance, ActorCriticRLModel, tf_util, SetVerbosity, TensorboardWriter
 from stable_baselines.common.runners import AbstractEnvRunner
-from stable_baselines.poar.policies import ActorCriticPolicy, RecurrentActorCriticPolicy
+from stable_baselines.poar.policies import SRLActorCriticPolicy
 from stable_baselines.a2c.utils import total_episode_reward_logger
 from ipdb import set_trace as tt
 import matplotlib.pyplot as plt
@@ -113,7 +113,7 @@ class POAR(ActorCriticRLModel):
     def setup_model(self):
         with SetVerbosity(self.verbose):
 
-            assert issubclass(self.policy, ActorCriticPolicy), "Error: the input policy for the POAR model must be " \
+            assert issubclass(self.policy, SRLActorCriticPolicy), "Error: the input policy for the POAR model must be " \
                                                                "an instance of common.policies.ActorCriticPolicy."
 
             self.n_batch = self.n_envs * self.n_steps
@@ -127,11 +127,12 @@ class POAR(ActorCriticRLModel):
                 self.sess = tf_util.make_session(num_cpu=n_cpu, graph=self.graph)
                 n_batch_step = None
                 n_batch_train = None
-                if issubclass(self.policy, RecurrentActorCriticPolicy):
-                    assert self.n_envs % self.nminibatches == 0, "For recurrent policies, "\
-                        "the number of environments run in parallel should be a multiple of nminibatches."
-                    n_batch_step = self.n_envs
-                    n_batch_train = self.n_batch // self.nminibatches
+                # TODO: Not implement for RecurrentActorCritic
+                # if issubclass(self.policy, RecurrentActorCriticPolicy):
+                #     assert self.n_envs % self.nminibatches == 0, "For recurrent policies, "\
+                #         "the number of environments run in parallel should be a multiple of nminibatches."
+                #     n_batch_step = self.n_envs
+                #     n_batch_train = self.n_batch // self.nminibatches
 
                 act_model = self.policy(self.sess, self.observation_space, self.action_space, self.n_envs, 1,
                                         n_batch_step, reuse=False, **self.policy_kwargs)
@@ -149,8 +150,8 @@ class POAR(ActorCriticRLModel):
                     self.old_vpred_ph = tf.placeholder(tf.float32, [None], name="old_vpred_ph")
                     self.learning_rate_ph = tf.placeholder(tf.float32, [], name="learning_rate_ph")
                     self.clip_range_ph = tf.placeholder(tf.float32, [], name="clip_range_ph")
-                    self.reconstruct_ph = tf.placeholder(tf.float32, train_model.processed_obs.shape,
-                                                         name="reconstruction_ph")
+                    # self.reconstruct_ph = tf.placeholder(tf.float32, train_model.processed_obs.shape,
+                    #                                      name="reconstruction_ph")
                     neglogpac = train_model.proba_distribution.neglogp(self.action_ph)
                     self.entropy = tf.reduce_mean(train_model.proba_distribution.entropy())
                     vpred = train_model.value_flat
@@ -179,8 +180,7 @@ class POAR(ActorCriticRLModel):
                             tf.clip_by_value(train_model.value_flat - self.old_vpred_ph,
                                              - self.clip_range_vf_ph, self.clip_range_vf_ph)
 
-                    ae_loss = tf.square(train_model.processed_obs - train_model.reconstruct_obs)
-                    self.ae_loss = tf.reduce_mean(ae_loss)
+
 
                     vf_losses1 = tf.square(vpred - self.rewards_ph)
                     vf_losses2 = tf.square(vpred_clipped - self.rewards_ph)
@@ -193,7 +193,24 @@ class POAR(ActorCriticRLModel):
                     self.approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - self.old_neglog_pac_ph))
                     self.clipfrac = tf.reduce_mean(tf.cast(tf.greater(tf.abs(ratio - 1.0),
                                                                       self.clip_range_ph), tf.float32))
-                    loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef +self.ae_loss
+
+
+                    loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef
+
+                    # SRL loss
+                    w_autoencoder, w_forward, w_inverse =  (2, 1, 1)
+                    # reconstruction loss
+                    ae_loss = tf.square(train_model.processed_obs - train_model.reconstruct_obs)
+                    # ae_loss += tf.square(train_model.next_processed_obs - train_model.next_reconstruct_obs)
+                    self.ae_loss = tf.reduce_mean(ae_loss) * w_autoencoder
+                    # TODO: a continuous version should be implemented
+                    self.inverse_loss = tf.reduce_mean(
+                        tf.square(train_model.srl_action - tf.one_hot(self.action_ph, self.action_space.n))) * w_inverse
+                    self.forward_loss = tf.reduce_mean(
+                        tf.square(train_model.next_latent_obs - train_model.srl_state)) * w_forward
+                    loss += self.ae_loss + self.forward_loss + self.inverse_loss
+
+
                     # loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef+ self.ae_loss
                     tf.summary.scalar('entropy_loss', self.entropy)
                     tf.summary.scalar('policy_gradient_loss', self.pg_loss)
@@ -201,6 +218,8 @@ class POAR(ActorCriticRLModel):
                     tf.summary.scalar('approximate_kullback-leibler', self.approxkl)
                     tf.summary.scalar('clip_factor', self.clipfrac)
                     tf.summary.scalar('reconstruction_loss', self.ae_loss)
+                    tf.summary.scalar('inverse_loss', self.inverse_loss)
+                    tf.summary.scalar('forward_loss', self.forward_loss)
                     tf.summary.scalar('loss', loss)
 
                     with tf.variable_scope('model'):
@@ -216,7 +235,7 @@ class POAR(ActorCriticRLModel):
                 # trainer = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate_ph)
                 self._train = trainer.apply_gradients(grads)
                 self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac',
-                                   'reconstruction_loss']
+                                   'reconstruction_loss', 'inverse_loss', 'forward_loss']
 
                 with tf.variable_scope("input_info", reuse=False):
                     tf.summary.scalar('discounted_rewards', tf.reduce_mean(self.rewards_ph))
@@ -250,10 +269,10 @@ class POAR(ActorCriticRLModel):
 
                 self.summary = tf.summary.merge_all()
 
-    def _train_step(self, learning_rate, cliprange, obs, reconstruct_obs, returns, masks, actions,
-                    values, neglogpacs, update, writer, states=None, cliprange_vf=None, next_obs=None,):
+    def _train_step(self, learning_rate, cliprange, obs, next_obs, returns, masks, actions,
+                    values, neglogpacs, update, writer, states=None, cliprange_vf=None):
         """
-        Training of PPO2 Algorithm
+        Training of POAR Algorithm
 
         :param learning_rate: (float) learning rate
         :param cliprange: (float) Clipping factor
@@ -274,7 +293,7 @@ class POAR(ActorCriticRLModel):
         advs = returns - values
         advs = (advs - advs.mean()) / (advs.std() + 1e-8)
         td_map = {self.train_model.obs_ph: obs, self.action_ph: actions,
-                  self.advs_ph: advs, self.rewards_ph: returns, self.reconstruct_ph: reconstruct_obs,
+                  self.advs_ph: advs, self.rewards_ph: returns,
                   self.learning_rate_ph: learning_rate, self.clip_range_ph: cliprange,
                   self.old_neglog_pac_ph: neglogpacs, self.old_vpred_ph: values}
         if states is not None:
@@ -284,7 +303,6 @@ class POAR(ActorCriticRLModel):
         # Running for srl model
         if next_obs is not None:
             td_map[self.train_model.next_obs_ph] = next_obs
-            td_map[self.train_model.dones_ph] = masks
             td_map[self.train_model.action_ph] = actions
 
         if cliprange_vf is not None and cliprange_vf >= 0:
@@ -300,23 +318,28 @@ class POAR(ActorCriticRLModel):
             if self.full_tensorboard_log and (1 + update) % 10 == 0:
                 run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                 run_metadata = tf.RunMetadata()
-                summary, policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss, _ = \
-                    self.sess.run([self.summary, self.pg_loss, self.vf_loss, self.entropy, self.approxkl,
-                                     self.clipfrac, self.ae_loss, self._train],
+                summary, policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss, \
+                inv_loss, forward_loss, _ = self.sess.run([self.summary, self.pg_loss, self.vf_loss, self.entropy,
+                                                           self.approxkl, self.clipfrac,
+                                                           self.ae_loss, self.inverse_loss, self.forward_loss,
+                                                           self._train],
                     td_map, options=run_options, run_metadata=run_metadata)
                 writer.add_run_metadata(run_metadata, 'step%d' % (update * update_fac))
             else:
-                summary, policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss, _ = \
+                summary, policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss, \
+                inv_loss, forward_loss,_ = \
                     self.sess.run([self.summary, self.pg_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac,
-                                   self.ae_loss, self._train],
+                                   self.ae_loss, self.inverse_loss, self.forward_loss, self._train],
                     td_map)
             writer.add_summary(summary, (update * update_fac))
         else:
-            policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss, _ = self.sess.run(
-                [self.pg_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac, self.ae_loss, self._train],
+            policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss, inv_loss, forward_loss, _ \
+                = self.sess.run(
+                [self.pg_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac,
+                 self.ae_loss, self.inverse_loss, self.forward_loss, self._train],
                 td_map)
 
-        return policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss
+        return policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss, inv_loss, forward_loss
 
     def learn(self, total_timesteps, callback=None, seed=None, log_interval=1, tb_log_name="POAR",
               reset_num_timesteps=True):
@@ -350,10 +373,10 @@ class POAR(ActorCriticRLModel):
                 cliprange_vf_now = cliprange_vf(frac)
                 # true_reward is the reward without discount
                 # mb_obs, mb_ae_obs, mb_returns, mb_dones, mb_actions
-                obs, ae_obs, returns, masks, actions, values, neglogpacs, states, ep_infos, true_reward = runner.run()
-                # if update % (n_updates//100) == 0 :
-                #     plt.imshow(oo[0])
-                #     plt.savefig("reconstruction/reconstruction{}".format(update)+".png")
+                obs, next_obs, returns, masks, actions, values, neglogpacs, states, ep_infos, true_reward, oo = runner.run()
+                if update % (n_updates//100) == 0 :
+                    plt.imshow(oo[0])
+                    plt.savefig("reconstruction/reconstruction{}".format(update)+".png")
                 self.num_timesteps += self.n_batch
                 ep_info_buf.extend(ep_infos)
                 mb_loss_vals = []
@@ -367,7 +390,8 @@ class POAR(ActorCriticRLModel):
                                                                             self.n_batch + start) // batch_size)
                             end = start + batch_size
                             mbinds = inds[start:end]
-                            slices = (arr[mbinds] for arr in (obs, ae_obs, returns, masks, actions, values, neglogpacs))
+                            slices = (arr[mbinds] for arr in (obs, next_obs, returns, masks, actions,
+                                                              values, neglogpacs))
                             mb_loss_vals.append(self._train_step(lr_now, cliprange_now, *slices, writer=writer,
                                                                  update=timestep, cliprange_vf=cliprange_vf_now))
                 else:  # recurrent version
@@ -480,30 +504,41 @@ class Runner(AbstractEnvRunner):
             - infos: (dict) the extra information of the model
         """
         # mb stands for minibatch
-        mb_obs, mb_ae_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [], [], [], [], [], [], []
+        mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [], [], [], [], [], []
+        mb_next_obs = []
         mb_states = self.states
         ep_infos = []
-        for _ in range(self.n_steps):
-            actions, ae_obs, values, self.states, neglogpacs = self.model.step(self.obs, self.states, self.dones)
+        iteration = 0
+        while iteration < self.n_steps:
+            actions, values, self.states, neglogpacs, ae_obs = self.model.step(self.obs, self.states, self.dones)
             mb_obs.append(self.obs.copy())  # 每次添加num_cpu个 128*num_cpu (n_env)
             mb_actions.append(actions)
             mb_values.append(values)
             mb_neglogpacs.append(neglogpacs)
             mb_dones.append(self.dones)
-            mb_ae_obs.append(ae_obs)
             clipped_actions = actions
             # Clip the actions to avoid out of bound error
             if isinstance(self.env.action_space, gym.spaces.Box):
                 clipped_actions = np.clip(actions, self.env.action_space.low, self.env.action_space.high)
             self.obs[:], rewards, self.dones, infos = self.env.step(clipped_actions)
+            if True in self.dones:
+                mb_obs.pop()
+                mb_actions.pop()
+                mb_values.pop()
+                mb_neglogpacs.pop()
+                mb_dones.pop()
+                continue
+            mb_next_obs.append(self.obs.copy())
             for info in infos:
                 maybe_ep_info = info.get('episode')
                 if maybe_ep_info is not None:
                     ep_infos.append(maybe_ep_info)
             mb_rewards.append(rewards)
+            iteration += 1
+
         # batch of steps to batch of rollouts
         mb_obs = np.asarray(mb_obs, dtype=self.obs.dtype)
-        mb_ae_obs = np.asarray(mb_ae_obs, dtype=np.float32)
+        mb_next_obs = np.asarray(mb_next_obs, dtype=self.obs.dtype)
         mb_rewards = np.asarray(mb_rewards, dtype=np.float32)
         mb_actions = np.asarray(mb_actions)
         mb_values = np.asarray(mb_values, dtype=np.float32)
@@ -526,12 +561,11 @@ class Runner(AbstractEnvRunner):
         mb_returns = mb_advs + mb_values
         # before this map, the mb_obs has dimension [num_step, n_env, (image_shape)]
         # for the second dimension, the sequential is continuous
-        mb_obs, mb_ae_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs, true_reward = \
-            map(swap_and_flatten, (mb_obs, mb_ae_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs,
+        mb_obs, mb_next_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs, true_reward = \
+            map(swap_and_flatten, (mb_obs, mb_next_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs,
                                    true_reward))
-
-        return (mb_obs, mb_ae_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs,
-                mb_states, ep_infos, true_reward)
+        return (mb_obs, mb_next_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs,
+                mb_states, ep_infos, true_reward, ae_obs)
 
 
 def get_schedule_fn(value_schedule):
