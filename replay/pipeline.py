@@ -175,8 +175,9 @@ def comparePlots(path,  algo,y_limits,title="Learning Curve",
     for folder in os.listdir(path):
         folders_srl=[]
         other_srl=[]
-        tmp_path = "{}/{}/{}/{}/".format(path, folder, env, srl)
-        tmp_path += os.listdir(tmp_path)[0]
+        tmp_path = "{}/{}/{}/".format(path, folder, env)
+        tmp_path = os.path.join(tmp_path, os.listdir(tmp_path)[0])
+        tmp_path = os.path.join(tmp_path, os.listdir(tmp_path)[0])
         legends.append(folder)
 
         for f in os.listdir(tmp_path):

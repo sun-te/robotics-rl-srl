@@ -275,7 +275,7 @@ def main():
     parser.add_argument('--ewc-weight', type=float, default=1.e4,
                         help="The weight we attribute for the old tasks")
     parser.add_argument('--gpu', type=str, default='0', help='The cpu we want to use')
-    parser.add_argument('--structure', type=str, default='autoencoder', help='The structure for poar')
+
     # Ignore unknown args for now
     args, unknown = parser.parse_known_args()
     env_kwargs = {}

@@ -3,7 +3,7 @@ import pickle
 import re
 from stable_baselines.common.policies import CnnPolicy, CnnLstmPolicy, CnnLnLstmPolicy, MlpPolicy, MlpLstmPolicy, \
     MlpLnLstmPolicy
-from stable_baselines.poar.policies import AEPolicy, AEBNPolicy, AEMlpPolicy, SRLPolicy, NatureCnnPolicy
+from stable_baselines.poar.policies import AEPolicy, AEBNPolicy, AEMlpPolicy, NatureCnnPolicy, AESRLPolicy, NAEPolicy, SRLPolicy
 from rl_baselines.progressive_nn.prnn_policy import ProgressiveMlpPolicy
 from rl_baselines.utils import createEnvs
 
@@ -268,13 +268,15 @@ class StableBaselinesRLObject(BaseRLObject):
             policy_fn = {'autoencoder': AEPolicy,
                          'autoencoderBN': AEBNPolicy,
                          'autoencoderMlp': AEMlpPolicy,
-                         'srl':SRLPolicy,
+                         'naive_autoencoder':NAEPolicy,
+                         'srl_autoencoder': AESRLPolicy,
+                         'srl': SRLPolicy,
                          'nature_cnn': NatureCnnPolicy
                          }[args.structure]
         if self.load_rl_model_path is not None:
             print("Load trained model from the path: ", self.load_rl_model_path)
             self.model = self.model_class.load(self.load_rl_model_path, envs, **train_kwargs)
         else:
-            self.model = self.model_class(policy_fn, envs, **train_kwargs, tensorboard_log="/home/tete/tensorboard/")
+            self.model = self.model_class(policy_fn, envs, **train_kwargs)#, tensorboard_log="/home/tete/tensorboard/")
         self.model.learn(total_timesteps=args.num_timesteps, seed=args.seed, callback=callback)
         envs.close()

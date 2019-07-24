@@ -18,7 +18,10 @@ class POARModel(StableBaselinesRLObject):
     def customArguments(self, parser):
         super().customArguments(parser)
         parser.add_argument('--num-cpu', help='Number of processes', type=int, default=1)
-
+        parser.add_argument('--structure', type=str, default='autoencoder', help='The structure for poar')
+        parser.add_argument('--state-dim', type=int, default=200, help='The dimension for the srl latent state')
+        parser.add_argument('--srl-weight', type=float, nargs='+', default=[1, 2, 3, 4, 5],
+                            help='reconstruction, forward, inverse, state_entropy, reward')
         return parser
 
     @classmethod
@@ -67,7 +70,9 @@ class POARModel(StableBaselinesRLObject):
                 "lam": 0.95,
                 "nminibatches": 4,
                 "noptepochs": 4,
-                "cliprange": 0.2
+                "cliprange": 0.2,
+                "state_dim": args.state_dim,
+                "srl_weight": args.srl_weight
             }
 
         super().train(args, callback, env_kwargs, {**param_kwargs, **train_kwargs})

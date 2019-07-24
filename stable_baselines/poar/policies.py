@@ -8,7 +8,8 @@ import tensorflow as tf
 from stable_baselines.a2c.utils import conv, linear, conv_to_fc, batch_to_seq, seq_to_batch, lstm
 from stable_baselines.common.policies import BasePolicy
 from stable_baselines.common.input import observation_input
-from stable_baselines.poar.utils import nature_autoencoder, bn_autoencoder, inverse_net, forward_net, autoencoderMP
+from stable_baselines.poar.utils import nature_autoencoder, bn_autoencoder, inverse_net, \
+    forward_net, autoencoderMP, naive_autoencoder, transition_net, encoder, reward_net
 from gym.spaces.discrete import Discrete
 
 from stable_baselines.common.distributions import make_proba_dist_type, CategoricalProbabilityDistribution, \
@@ -110,7 +111,7 @@ class SRLActorCriticPolicy(BasePolicy):
     :param scale: (bool) whether or not to scale the input
     """
 
-    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, scale=False):
+    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, state_dim=200, reuse=False, scale=False):
         super(SRLActorCriticPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse,
                                                    scale=scale)
         self._pdtype = make_proba_dist_type(ac_space)
@@ -125,7 +126,9 @@ class SRLActorCriticPolicy(BasePolicy):
         self.srl_action = None
         self.srl_state = None
         self.next_latent_obs = None
-
+        self.latent_obs = None
+        self.srl_reward = None
+        self._state_dim =state_dim
     def _setup_init(self):
         """
         sets up the distibutions, actions, and value
@@ -147,7 +150,9 @@ class SRLActorCriticPolicy(BasePolicy):
             else:
                 self._policy_proba = []  # it will return nothing, as it is not implemented
             self._value_flat = self.value_fn[:, 0]
-
+    @property
+    def state_dim(self):
+        return self.state_dim
     @property
     def pdtype(self):
         """ProbabilityDistributionType: type of the distribution for stochastic actions."""
@@ -307,8 +312,6 @@ class AEPolicy(FeedForwardPolicy):
         super(AEPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
                                         feature_extraction='cnn', structure='autoencoder', **_kwargs)
 
-
-
 class AEBNPolicy(FeedForwardPolicy):
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
         super(AEBNPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
@@ -341,28 +344,8 @@ class MlpPolicy(FeedForwardPolicy):
 
 
 class SRLPolicy(SRLActorCriticPolicy):
-    """
-    Policy object that implements actor critic, using a feed forward neural network.
-
-    :param sess: (TensorFlow session) The current TensorFlow session
-    :param ob_space: (Gym Space) The observation space of the environment
-    :param ac_space: (Gym Space) The action space of the environment
-    :param n_env: (int) The number of environments to run
-    :param n_steps: (int) The number of steps to run for each environment
-    :param n_batch: (int) The number of batch to run (n_envs * n_steps)
-    :param reuse: (bool) If the policy is reusable or not
-    :param layers: ([int]) (deprecated, use net_arch instead) The size of the Neural network for the policy
-        (if None, default to [64, 64])
-    :param net_arch: (list) Specification of the actor-critic policy network architecture (see mlp_extractor
-        documentation for details).
-    :param act_fun: (tf.func) the activation function to use in the neural network.
-    :param cnn_extractor: (function (TensorFlow Tensor, ``**kwargs``): (TensorFlow Tensor)) the CNN feature extraction
-    :param feature_extraction: (str) The feature extraction type ("cnn" or "mlp")
-    :param kwargs: (dict) Extra keyword arguments for the nature CNN feature extraction
-    """
-
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, layers=None, net_arch=None,
-                 act_fun=tf.tanh, feature_extraction="cnn", structure='autoencoder', **kwargs):
+                 state_dim=200, feature_extraction="cnn", structure='autoencoder', **kwargs):
         super(SRLPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse,
                                                 scale=(feature_extraction == "cnn"), )
         self._kwargs_check(feature_extraction, kwargs)
@@ -385,16 +368,22 @@ class SRLPolicy(SRLActorCriticPolicy):
             net_arch = [dict(vf=layers, pi=layers)]
         with tf.variable_scope("model", reuse=reuse):
             # By default, we consider the inputs are raw_pixels
-            encoder_fn = nature_autoencoder
-            self.next_reconstruct_obs, self.next_latent_obs = encoder_fn(self.next_processed_obs, state_dim=200)
-            self.reconstruct_obs, latent_obs = encoder_fn(self.processed_obs, state_dim=200)
-            pi_latent = vf_latent = latent_obs
+            if structure == 'autoencoder':
+                encoder_fn = nature_autoencoder
+            elif structure == 'naive_autoencoder':
+                encoder_fn = naive_autoencoder
+            else:
+                encoder_fn = encoder
+
+            self.next_reconstruct_obs, self.next_latent_obs = encoder_fn(self.next_processed_obs, state_dim=state_dim)
+            self.reconstruct_obs, self.latent_obs = encoder_fn(self.processed_obs, state_dim=state_dim)
+            pi_latent = vf_latent = self.latent_obs
                 # We make nex_latent_obs to be observable from outside to compute the loss with srl_state
             with tf.variable_scope('SRL'):
-                self.srl_action = inverse_net(latent_obs[..., -2:], self.next_latent_obs[..., -2:], ac_space)
-                self.srl_state = forward_net(latent_obs[...,-4:-2], self._action_ph, ac_space, state_dim=200)
-            #self.reconstruct_obs, latent_obs = cnn_autoencoder2(self.processed_obs, state_dim=200, **kwargs)
-            #pi_latent = vf_latent = nature_cnn(self.processed_obs, **kwargs)
+                self.srl_action = inverse_net(self.latent_obs[...,-2:], self.next_latent_obs[...,-2:], ac_space)
+                self.srl_state = forward_net(self.latent_obs[...,-4:-2], self._action_ph, ac_space, state_dim=state_dim)
+                self.srl_reward = reward_net(self.latent_obs[...,-6:-4], self.next_latent_obs[...,-6:-4], reward_dim=1)
+            # pi_latent, vf_latent = mlp_extractor(self.latent_obs, net_arch, act_fun)
             self._value_fn = linear(vf_latent, 'vf', 1)
             self._proba_distribution, self._policy, self.q_value = \
                 self.pdtype.proba_distribution_from_latent(pi_latent, vf_latent, init_scale=0.01)
@@ -410,8 +399,8 @@ class SRLPolicy(SRLActorCriticPolicy):
                                                     {self.obs_ph: obs})
 
 
-        p_obs, ae_obs = self.sess.run([self.processed_obs, self.reconstruct_obs], {self.obs_ph: obs})
-        return action, value, self.initial_state, neglogp, ae_obs
+        p_obs, ae_obs, latent = self.sess.run([self.processed_obs, self.reconstruct_obs, self.latent_obs], {self.obs_ph: obs})
+        return action, value, self.initial_state, neglogp, ae_obs, latent
 
 
     def proba_step(self, obs, state=None, mask=None):
@@ -419,3 +408,16 @@ class SRLPolicy(SRLActorCriticPolicy):
 
     def value(self, obs, state=None, mask=None):
         return self.sess.run(self.value_flat, {self.obs_ph: obs})
+
+
+class NAEPolicy(SRLPolicy):
+    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
+        super(NAEPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
+                                        feature_extraction='cnn', structure='naive_autoencoder', **_kwargs)
+
+
+class AESRLPolicy(SRLPolicy):
+    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
+        super(AESRLPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
+                                        feature_extraction='cnn', structure='autoencoder', **_kwargs)
+

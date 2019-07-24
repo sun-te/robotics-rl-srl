@@ -230,6 +230,49 @@ def nature_autoencoder(obs, state_dim, reuse=tf.AUTO_REUSE):
         output = tf.nn.sigmoid(conv(scope='conv2d', input_tensor=d3, n_filters=3, filter_size=3, stride=1, pad='SAME'))
         return output, latent
 
+
+def encoder(obs, state_dim, reuse=tf.AUTO_REUSE):
+    activation = tf.nn.relu
+    with tf.variable_scope('encoder1', reuse=reuse):
+        e1 = activation(conv(scope='conv2d', input_tensor=obs, n_filters=64, filter_size=8, stride=4, pad='SAME'))
+    with tf.variable_scope('encoder2', reuse=reuse):
+        e2 = activation(conv(scope='conv2d', input_tensor=e1, n_filters=64, filter_size=4, stride=2, pad='SAME'))
+    with tf.variable_scope('encoder3', reuse=reuse):
+        e3 = activation(conv(scope='conv2d', input_tensor=e2, n_filters=64, filter_size=3, stride=1, pad='SAME'))
+
+    #m3 = tf.layers.max_pooling2d(e3, pool_size=2, strides=2)
+    with tf.variable_scope('latent_observation', reuse=tf.AUTO_REUSE):
+        m3_flat = conv_to_fc(e3)
+        fc1 = linear(scope='fc1', input_tensor=m3_flat, n_hidden=256)
+        fc2 = linear(scope='fc2', input_tensor=fc1, n_hidden=128)
+        fc3 = linear(scope='fc3', input_tensor=fc2, n_hidden=64)
+        latent = linear(scope='latent', input_tensor=fc3, n_hidden=state_dim)
+    return obs, latent
+
+def naive_autoencoder(obs, state_dim, reuse=tf.AUTO_REUSE):
+    activation = tf.nn.relu
+    with tf.variable_scope('encoder1', reuse=reuse):
+        e1 = activation(conv(scope='conv2d', input_tensor=obs, n_filters=64, filter_size=8, stride=4, pad='SAME'))
+    with tf.variable_scope('encoder2', reuse=reuse):
+        e2 = activation(conv(scope='conv2d', input_tensor=e1, n_filters=64, filter_size=4, stride=2, pad='SAME'))
+    with tf.variable_scope('encoder3', reuse=reuse):
+        e3 = activation(conv(scope='conv2d', input_tensor=e2, n_filters=64, filter_size=3, stride=1, pad='SAME'))
+
+    #m3 = tf.layers.max_pooling2d(e3, pool_size=2, strides=2)
+    with tf.variable_scope('latent_observation', reuse=tf.AUTO_REUSE):
+        m3_flat = conv_to_fc(e3)
+        latent = m3_flat
+
+    with tf.variable_scope('decoder1', reuse=reuse):
+        d1 = activation(batch_norm(tf.layers.conv2d_transpose(e3, filters=64, kernel_size=3, strides=2, padding='same')))
+    with tf.variable_scope('decoder2', reuse=reuse):
+        d2 = activation(batch_norm(tf.layers.conv2d_transpose(d1, filters=64, kernel_size=3, strides=2, padding='same')))
+    with tf.variable_scope('decoder3', reuse=reuse):
+        d3 = activation(batch_norm(tf.layers.conv2d_transpose(d2, filters=64, kernel_size=3, strides=2, padding='same')))
+    with tf.variable_scope('reconstruction', reuse=reuse):
+        output = tf.nn.sigmoid(conv(scope='conv2d', input_tensor=d3, n_filters=3, filter_size=3, stride=1, pad='SAME'))
+        return output, latent
+
 def inverse_net(state, next_state, ac_space):
     """
     return the prediction of the action
@@ -239,7 +282,6 @@ def inverse_net(state, next_state, ac_space):
     :return:
     """
     activation = tf.nn.relu
-
     with tf.variable_scope("inverse"):
         concat_state = tf.concat([state, next_state], axis=1, name='concat_state')
         layer1 = activation(linear(input_tensor=concat_state, scope='fc1', n_hidden=64, init_scale=np.sqrt(2)))
@@ -251,7 +293,6 @@ def inverse_net(state, next_state, ac_space):
 
 def forward_net(state, action, ac_space, state_dim=512):
     activation = tf.nn.relu
-
     with tf.variable_scope("forward"):
         if isinstance(ac_space, Box):
             concat_state_action = tf.concat([state, action], axis=1, name='state_action')
@@ -260,3 +301,26 @@ def forward_net(state, action, ac_space, state_dim=512):
         layer1 = activation(linear(input_tensor=concat_state_action, scope='fc1', n_hidden=64, init_scale=np.sqrt(2)))
         layer2 = activation(linear(input_tensor=layer1, scope='fc2', n_hidden=64, init_scale=np.sqrt(2)))
         return linear(input_tensor=layer2, scope='srl_state', n_hidden=state_dim)
+
+
+def transition_net(state, action, ac_space, state_dim=512):
+    activation = tf.nn.relu
+
+    with tf.variable_scope("transition"):
+        if isinstance(ac_space, Box):
+            concat_state_action = tf.concat([state, action], axis=1, name='state_action')
+        else:
+            concat_state_action = tf.concat([state, tf.one_hot(action, ac_space.n)], axis=1, name='state_action')
+        layer1 = activation(linear(input_tensor=concat_state_action, scope='fc1', n_hidden=64, init_scale=np.sqrt(2)))
+        layer2 = activation(linear(input_tensor=layer1, scope='fc2', n_hidden=64, init_scale=np.sqrt(2)))
+        return linear(input_tensor=layer2, scope='srl_state', n_hidden=state_dim)
+
+
+def reward_net(state, next_state, reward_dim=1):
+    activation = tf.nn.tanh
+
+    with tf.variable_scope("reward"):
+        concat_state = tf.concat([state, next_state], axis=1, name='concat_state')
+        layer1 = activation(linear(input_tensor=concat_state, scope='fc1', n_hidden=64, init_scale=np.sqrt(2)))
+        layer2 = activation(linear(input_tensor=layer1, scope='fc2', n_hidden=64, init_scale=np.sqrt(2)))
+        return linear(input_tensor=layer2, scope='srl_state', n_hidden=reward_dim)

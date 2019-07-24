@@ -50,7 +50,7 @@ class POAR(ActorCriticRLModel):
 
     def __init__(self, policy, env, gamma=0.99, n_steps=128, ent_coef=0.01, learning_rate=2.5e-4, vf_coef=0.5,
                  max_grad_norm=0.5, lam=0.95, nminibatches=4, noptepochs=4, cliprange=0.2, buffer_size=5000,
-                 cliprange_vf=None,
+                 cliprange_vf=None, state_dim=200, srl_weight=(1, 1, 1, 1, 1),
                  verbose=0, tensorboard_log=None, _init_setup_model=True, policy_kwargs=None,
                  full_tensorboard_log=False):
 
@@ -66,6 +66,8 @@ class POAR(ActorCriticRLModel):
         self.max_grad_norm = max_grad_norm
         self.gamma = gamma
         self.lam = lam
+        self.state_dim = state_dim
+        self.srl_weight = srl_weight
         self.nminibatches = nminibatches
         self.noptepochs = noptepochs
         self.tensorboard_log = tensorboard_log
@@ -135,12 +137,12 @@ class POAR(ActorCriticRLModel):
                 #     n_batch_train = self.n_batch // self.nminibatches
 
                 act_model = self.policy(self.sess, self.observation_space, self.action_space, self.n_envs, 1,
-                                        n_batch_step, reuse=False, **self.policy_kwargs)
+                                        n_batch_step, state_dim=self.state_dim, reuse=False, **self.policy_kwargs)
                 with tf.variable_scope("train_model", reuse=True,
                                        custom_getter=tf_util.outer_scope_getter("train_model")):
                     train_model = self.policy(self.sess, self.observation_space, self.action_space,
                                               self.n_envs // self.nminibatches, self.n_steps, n_batch_train,
-                                              reuse=True, **self.policy_kwargs)
+                                              state_dim=self.state_dim, reuse=True, **self.policy_kwargs)
 
                 with tf.variable_scope("loss", reuse=False):
                     self.action_ph = train_model.pdtype.sample_placeholder([None], name="action_ph")
@@ -194,32 +196,48 @@ class POAR(ActorCriticRLModel):
                     self.clipfrac = tf.reduce_mean(tf.cast(tf.greater(tf.abs(ratio - 1.0),
                                                                       self.clip_range_ph), tf.float32))
 
-
+                    self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac']
                     loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef
 
                     # SRL loss
-                    w_autoencoder, w_forward, w_inverse =  (2, 1, 1)
                     # reconstruction loss
                     ae_loss = tf.square(train_model.processed_obs - train_model.reconstruct_obs)
-                    # ae_loss += tf.square(train_model.next_processed_obs - train_model.next_reconstruct_obs)
-                    self.ae_loss = tf.reduce_mean(ae_loss) * w_autoencoder
+                    ae_loss += tf.square(train_model.next_processed_obs - train_model.next_reconstruct_obs)
+                    ae_loss = 0.5 * tf.reduce_mean(ae_loss)
                     # TODO: a continuous version should be implemented
-                    self.inverse_loss = tf.reduce_mean(
-                        tf.square(train_model.srl_action - tf.one_hot(self.action_ph, self.action_space.n))) * w_inverse
-                    self.forward_loss = tf.reduce_mean(
-                        tf.square(train_model.next_latent_obs - train_model.srl_state)) * w_forward
-                    loss += self.ae_loss + self.forward_loss + self.inverse_loss
+                    inverse_loss = tf.reduce_mean(
+                        tf.square(train_model.srl_action - tf.one_hot(self.action_ph, self.action_space.n)))
+                    forward_loss = tf.reduce_mean(
+                        tf.square(train_model.next_latent_obs - train_model.srl_state))
+                    reward_loss = tf.reduce_mean(tf.square(train_model.srl_reward - self.rewards_ph))
+                    cd = 0.2
+                    state_entropy_loss = tf.exp(-cd *tf.norm(train_model.latent_obs-train_model.next_latent_obs))
 
+                    weight_dict = {"reconstruction_loss":self.srl_weight[0],
+                                   "forward_loss": self.srl_weight[1],
+                                   "inverse_loss": self.srl_weight[2],
+                                   "state_entropy_loss": self.srl_weight[3],
+                                   "reward_loss": self.srl_weight[4]
+                                   }
+                    srl_loss_dict = {"reconstruction_loss": ae_loss,
+                                   "forward_loss": forward_loss,
+                                   "inverse_loss": inverse_loss,
+                                   "state_entropy_loss": state_entropy_loss,
+                                   "reward_loss": reward_loss
+                                    }
+                    self.srl_loss = []
+                    for srl_loss_name in weight_dict:
+                        if weight_dict[srl_loss_name] > 0:
+                            loss += weight_dict[srl_loss_name] * srl_loss_dict[srl_loss_name]
+                            self.srl_loss.append(srl_loss_dict[srl_loss_name])
+                            self.loss_names.append(srl_loss_name)
+                            tf.summary.scalar(srl_loss_name, srl_loss_dict[srl_loss_name])
 
-                    # loss = self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef+ self.ae_loss
                     tf.summary.scalar('entropy_loss', self.entropy)
                     tf.summary.scalar('policy_gradient_loss', self.pg_loss)
                     tf.summary.scalar('value_function_loss', self.vf_loss)
                     tf.summary.scalar('approximate_kullback-leibler', self.approxkl)
                     tf.summary.scalar('clip_factor', self.clipfrac)
-                    tf.summary.scalar('reconstruction_loss', self.ae_loss)
-                    tf.summary.scalar('inverse_loss', self.inverse_loss)
-                    tf.summary.scalar('forward_loss', self.forward_loss)
                     tf.summary.scalar('loss', loss)
 
                     with tf.variable_scope('model'):
@@ -232,10 +250,9 @@ class POAR(ActorCriticRLModel):
                         grads, _grad_norm = tf.clip_by_global_norm(grads, self.max_grad_norm)
                     grads = list(zip(grads, self.params))
                 trainer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_ph, epsilon=1e-5)
-                # trainer = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate_ph)
+
                 self._train = trainer.apply_gradients(grads)
-                self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac',
-                                   'reconstruction_loss', 'inverse_loss', 'forward_loss']
+
 
                 with tf.variable_scope("input_info", reuse=False):
                     tf.summary.scalar('discounted_rewards', tf.reduce_mean(self.rewards_ph))
@@ -313,33 +330,34 @@ class POAR(ActorCriticRLModel):
         else:
             update_fac = self.n_batch // self.nminibatches // self.noptepochs // self.n_steps + 1
 
+        running_list = [self._train, self.pg_loss, self.vf_loss,
+                        self.entropy, self.approxkl, self.clipfrac] + self.srl_loss
         if writer is not None:
+            running_list.append(self.summary)
             # run loss backprop with summary, but once every 10 runs save the metadata (memory, compute time, ...)
             if self.full_tensorboard_log and (1 + update) % 10 == 0:
                 run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                 run_metadata = tf.RunMetadata()
-                summary, policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss, \
-                inv_loss, forward_loss, _ = self.sess.run([self.summary, self.pg_loss, self.vf_loss, self.entropy,
-                                                           self.approxkl, self.clipfrac,
-                                                           self.ae_loss, self.inverse_loss, self.forward_loss,
-                                                           self._train],
-                    td_map, options=run_options, run_metadata=run_metadata)
+                running_res = self.sess.run(running_list, td_map, options=run_options, run_metadata=run_metadata)
                 writer.add_run_metadata(run_metadata, 'step%d' % (update * update_fac))
             else:
-                summary, policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss, \
-                inv_loss, forward_loss,_ = \
-                    self.sess.run([self.summary, self.pg_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac,
-                                   self.ae_loss, self.inverse_loss, self.forward_loss, self._train],
-                    td_map)
+                # summary, policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss, \
+                # inv_loss, forward_loss,_ = \
+                #     self.sess.run([self.summary, self.pg_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac,
+                #                    self.ae_loss, self.inverse_loss, self.forward_loss, self._train],
+                #     td_map)
+                running_res = self.sess.run(running_list, td_map)
+            summary = running_res[-1]
+            loss_vals = running_res[1:-1]
             writer.add_summary(summary, (update * update_fac))
         else:
-            policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss, inv_loss, forward_loss, _ \
-                = self.sess.run(
-                [self.pg_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac,
-                 self.ae_loss, self.inverse_loss, self.forward_loss, self._train],
-                td_map)
-
-        return policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss, inv_loss, forward_loss
+            # policy_loss, value_loss, policy_entropy, approxkl, clipfrac, reconstruction_loss, inv_loss, forward_loss, _ \
+            #     = self.sess.run(
+            #     [self.pg_loss, self.vf_loss, self.entropy, self.approxkl, self.clipfrac,
+            #      self.ae_loss, self.inverse_loss, self.forward_loss, self._train],
+            #     td_map)
+            loss_vals = self.sess.run(running_list, td_map)[1:]
+        return loss_vals
 
     def learn(self, total_timesteps, callback=None, seed=None, log_interval=1, tb_log_name="POAR",
               reset_num_timesteps=True):
@@ -368,15 +386,25 @@ class POAR(ActorCriticRLModel):
                 t_start = time.time()
                 frac = 1.0 - (update - 1.0) / n_updates
                 lr_now = self.learning_rate(frac)
-                # lr_now = self.learning_rate(1)
                 cliprange_now = self.cliprange(frac)
                 cliprange_vf_now = cliprange_vf(frac)
                 # true_reward is the reward without discount
                 # mb_obs, mb_ae_obs, mb_returns, mb_dones, mb_actions
-                obs, next_obs, returns, masks, actions, values, neglogpacs, states, ep_infos, true_reward, oo = runner.run()
-                if update % (n_updates//100) == 0 :
-                    plt.imshow(oo[0])
-                    plt.savefig("reconstruction/reconstruction{}".format(update)+".png")
+                obs, next_obs, returns, masks, actions, values, neglogpacs, states, ep_infos, true_reward, oo, latent = runner.run()
+                # if update % (n_updates//100) == 0 :
+                # plt.imshow(oo[0])
+                # plt.savefig("reconstruction/reconstruction{}".format(update)+".png")
+                    # c = true_reward
+                    # for i, r in enumerate(true_reward):
+                    #     if r > 0 :
+                    #         c[i] = 0.5
+                    #     elif r ==0:
+                    #         c[i] = 1
+                    #     else:
+                    #         c[i] = 0
+                    # plt.scatter(latent[:, 0], latent[:, 1], c=c, s=5)
+                    # plt.savefig("reconstruction/latent{}".format(update)+".png")
+
                 self.num_timesteps += self.n_batch
                 ep_info_buf.extend(ep_infos)
                 mb_loss_vals = []
@@ -505,12 +533,15 @@ class Runner(AbstractEnvRunner):
         """
         # mb stands for minibatch
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [], [], [], [], [], []
+        mb_latent = []
         mb_next_obs = []
         mb_states = self.states
         ep_infos = []
         iteration = 0
         while iteration < self.n_steps:
-            actions, values, self.states, neglogpacs, ae_obs = self.model.step(self.obs, self.states, self.dones)
+            actions, values, self.states, neglogpacs, ae_obs, latent = self.model.step(self.obs,
+                                                                                       self.states, self.dones)
+            mb_latent.append(latent)
             mb_obs.append(self.obs.copy())  # 每次添加num_cpu个 128*num_cpu (n_env)
             mb_actions.append(actions)
             mb_values.append(values)
@@ -522,6 +553,7 @@ class Runner(AbstractEnvRunner):
                 clipped_actions = np.clip(actions, self.env.action_space.low, self.env.action_space.high)
             self.obs[:], rewards, self.dones, infos = self.env.step(clipped_actions)
             if True in self.dones:
+                mb_latent.pop()
                 mb_obs.pop()
                 mb_actions.pop()
                 mb_values.pop()
@@ -538,6 +570,7 @@ class Runner(AbstractEnvRunner):
 
         # batch of steps to batch of rollouts
         mb_obs = np.asarray(mb_obs, dtype=self.obs.dtype)
+        mb_latent = np.asarray(mb_latent, dtype=np.float32)
         mb_next_obs = np.asarray(mb_next_obs, dtype=self.obs.dtype)
         mb_rewards = np.asarray(mb_rewards, dtype=np.float32)
         mb_actions = np.asarray(mb_actions)
@@ -561,11 +594,11 @@ class Runner(AbstractEnvRunner):
         mb_returns = mb_advs + mb_values
         # before this map, the mb_obs has dimension [num_step, n_env, (image_shape)]
         # for the second dimension, the sequential is continuous
-        mb_obs, mb_next_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs, true_reward = \
+        mb_obs, mb_next_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs, true_reward, mb_latent = \
             map(swap_and_flatten, (mb_obs, mb_next_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs,
-                                   true_reward))
+                                   true_reward, mb_latent))
         return (mb_obs, mb_next_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs,
-                mb_states, ep_infos, true_reward, ae_obs)
+                mb_states, ep_infos, true_reward, ae_obs, mb_latent)
 
 
 def get_schedule_fn(value_schedule):
