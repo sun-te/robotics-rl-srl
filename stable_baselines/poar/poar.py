@@ -205,8 +205,8 @@ class POAR(ActorCriticRLModel):
                     ae_loss += tf.square(train_model.next_processed_obs - train_model.next_reconstruct_obs)
                     ae_loss = 0.5 * tf.reduce_mean(ae_loss)
                     # TODO: a continuous version should be implemented
-                    inverse_loss = tf.reduce_mean(
-                        tf.square(train_model.srl_action - tf.one_hot(self.action_ph, self.action_space.n)))
+                    inverse_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
+                        labels=tf.one_hot(self.action_ph, self.action_space.n), logits=train_model.srl_action))
                     forward_loss = tf.reduce_mean(
                         tf.square(train_model.next_latent_obs - train_model.srl_state))
                     reward_loss = tf.reduce_mean(tf.square(train_model.srl_reward - self.rewards_ph))

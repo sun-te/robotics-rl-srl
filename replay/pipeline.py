@@ -8,7 +8,7 @@ from matplotlib.ticker import FuncFormatter
 import json
 
 from rl_baselines.visualize import  movingAverage, loadCsv,loadData
-from replay.aggregate_plots import lightcolors, darkcolors, Y_LIM_SHAPED_REWARD, Y_LIM_SPARSE_REWARD, millions
+from replay.aggregate_plots import lightcolors, darkcolors, millions
 from srl_zoo.utils import printGreen, printRed, printYellow
 
 # Init seaborn
@@ -16,6 +16,12 @@ sns.set()
 # Style for the title
 fontstyle = {'fontname': 'DejaVu Sans', 'fontsize': 16}
 
+
+# Mobile robot
+Y_LIM_SPARSE_REWARD = [-20, 250]
+# Relative: [-150, -50]
+# Normal: [-70, -35]
+Y_LIM_SHAPED_REWARD = [-150, -50]
 
 
 
@@ -56,7 +62,7 @@ def plotGatheredData(x_list,y_list,y_limits, timesteps,title,legends,no_display,
         y_limits = [-0.05, 1.05]
         y_list   =(y_list-np.min(y_list))/(np.max(y_list)-np.min(y_list))
 
-    fig = plt.figure(title)
+    fig = plt.figure(title, figsize=[15,10])
     for i in range(len(y_list)):
         label = legends[i]
         y = y_list[i][:, :min_x]

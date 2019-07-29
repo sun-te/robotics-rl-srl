@@ -289,7 +289,7 @@ def inverse_net(state, next_state, ac_space):
         if isinstance(ac_space, Box):  # TODO: for the continuous action
             return linear(input_tensor=layer2, scope='srl_action', n_hidden=ac_space.shape)
         else:  # discrete action
-            return tf.nn.softmax(linear(input_tensor=layer2, scope='srl_action', n_hidden=ac_space.n))
+            return linear(input_tensor=layer2, scope='srl_action', n_hidden=ac_space.n)
 
 def forward_net(state, action, ac_space, state_dim=512):
     activation = tf.nn.relu

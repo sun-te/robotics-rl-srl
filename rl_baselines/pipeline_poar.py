@@ -47,17 +47,17 @@ def main():
 
     # 'reconstruction, forward, inverse, state_entropy, reward'
     srl_weights = [
-                   [10,1,1,1,1],
-                   [5, 1,1,1,1],
-                   [1, 1, 1, 1, 1],
-                   [5,1,1,0,0],
-                   [1, 1, 1, 0, 0],
-                   [0,0,0,0,0],
-                   [1,0,1,0,1], # ae + inverse +reward
-                   [0,1,1,1,0],   # f +i + entropy
-                   [1,0,1,0,100]]
+                    # compare the loss on the autoencoder
+                    # [1, 1, 1, 0, 0],
+                    # [5, 1,1,0,0],
+                    # [10,1,1,0,0],
+                    # [1, 5,1,0,0],
+                    # [1,10,1,0,0],
+                    [1, 1, 5, 0,0],
+                    [1, 1, 10, 0,0],
+                    [0,0,0,0,0]
+                   ]
     srl_name = ['a','f','i','e','r']
-    counter = 0
     if args.verbose:
         # None here means stdout of terminal for subprocess.call
         stdout = None
