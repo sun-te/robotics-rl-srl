@@ -382,7 +382,7 @@ class SRLPolicy(SRLActorCriticPolicy):
             with tf.variable_scope('SRL'):
                 self.srl_action = inverse_net(self.latent_obs[...,-2:], self.next_latent_obs[...,-2:], ac_space)
                 self.srl_state = forward_net(self.latent_obs[...,-4:-2], self._action_ph, ac_space, state_dim=state_dim)
-                self.srl_reward = reward_net(self.latent_obs[...,-6:-4], self.next_latent_obs[...,-6:-4], reward_dim=1)
+                self.srl_reward = reward_net(self.latent_obs[...,:-4], self.next_latent_obs[...,:-4], reward_dim=2)
             # pi_latent, vf_latent = mlp_extractor(self.latent_obs, net_arch, act_fun)
             self._value_fn = linear(vf_latent, 'vf', 1)
             self._proba_distribution, self._policy, self.q_value = \

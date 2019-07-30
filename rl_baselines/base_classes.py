@@ -277,6 +277,6 @@ class StableBaselinesRLObject(BaseRLObject):
             print("Load trained model from the path: ", self.load_rl_model_path)
             self.model = self.model_class.load(self.load_rl_model_path, envs, **train_kwargs)
         else:
-            self.model = self.model_class(policy_fn, envs, **train_kwargs)#, tensorboard_log="/home/tete/tensorboard/")
+            self.model = self.model_class(policy_fn, envs, **train_kwargs, tensorboard_log="/home/tete/tensorboard/")
         self.model.learn(total_timesteps=args.num_timesteps, seed=args.seed, callback=callback)
         envs.close()

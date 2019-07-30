@@ -227,7 +227,7 @@ def nature_autoencoder(obs, state_dim, reuse=tf.AUTO_REUSE):
     with tf.variable_scope('decoder3', reuse=reuse):
         d3 = activation(batch_norm(tf.layers.conv2d_transpose(d2, filters=64, kernel_size=8, strides=4, padding='same')))
     with tf.variable_scope('reconstruction', reuse=reuse):
-        output = tf.nn.sigmoid(conv(scope='conv2d', input_tensor=d3, n_filters=3, filter_size=3, stride=1, pad='SAME'))
+        output = tf.nn.tanh(conv(scope='conv2d', input_tensor=d3, n_filters=3, filter_size=3, stride=1, pad='SAME'))
         return output, latent
 
 
@@ -270,7 +270,7 @@ def naive_autoencoder(obs, state_dim, reuse=tf.AUTO_REUSE):
     with tf.variable_scope('decoder3', reuse=reuse):
         d3 = activation(batch_norm(tf.layers.conv2d_transpose(d2, filters=64, kernel_size=3, strides=2, padding='same')))
     with tf.variable_scope('reconstruction', reuse=reuse):
-        output = tf.nn.sigmoid(conv(scope='conv2d', input_tensor=d3, n_filters=3, filter_size=3, stride=1, pad='SAME'))
+        output = tf.nn.tanh(conv(scope='conv2d', input_tensor=d3, n_filters=3, filter_size=3, stride=1, pad='SAME'))
         return output, latent
 
 def inverse_net(state, next_state, ac_space):
@@ -324,3 +324,14 @@ def reward_net(state, next_state, reward_dim=1):
         layer1 = activation(linear(input_tensor=concat_state, scope='fc1', n_hidden=64, init_scale=np.sqrt(2)))
         layer2 = activation(linear(input_tensor=layer1, scope='fc2', n_hidden=64, init_scale=np.sqrt(2)))
         return linear(input_tensor=layer2, scope='srl_state', n_hidden=reward_dim)
+
+def pca(data, dim=2):
+    # preprocess the data
+
+    X = data
+    X_mean = np.mean(X, axis=0)
+    X = X - X_mean
+    # svd
+    U, S, V = np.linalg.svd(X.T)
+    C = np.matmul(X,U[:,:dim])
+    return C

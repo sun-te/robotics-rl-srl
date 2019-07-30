@@ -1,0 +1,1 @@
+This is a folder that contains the reconstruction images and the latent spaces learned. From the 400 updates, the weight of srl_loss decrease from 10e6 to 0.
