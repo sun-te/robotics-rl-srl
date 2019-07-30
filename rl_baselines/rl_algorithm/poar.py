@@ -1,6 +1,8 @@
 from stable_baselines import POAR
 
 from rl_baselines.base_classes import StableBaselinesRLObject
+from collections import OrderedDict
+from srl_zoo.utils import parseLossArguments
 
 
 class POARModel(StableBaselinesRLObject):
@@ -19,9 +21,10 @@ class POARModel(StableBaselinesRLObject):
         super().customArguments(parser)
         parser.add_argument('--num-cpu', help='Number of processes', type=int, default=1)
         parser.add_argument('--structure', type=str, default='autoencoder', help='The structure for poar')
-        parser.add_argument('--state-dim', type=int, default=200, help='The dimension for the srl latent state')
-        parser.add_argument('--srl-weight', type=float, nargs='+', default=[1, 2, 3, 4, 5],
-                            help='reconstruction, forward, inverse, state_entropy, reward')
+        parser.add_argument('--losses', nargs='+', default=["autoencoder:1:200"], **parseLossArguments(
+            choices=["forward", "inverse", "reward", "entropy", "autoencoder"],
+            help='The wanted losses. One may also want to specify a weight and dimension '
+                 'that apply as follows: "<name>:<weight>:<dimension>".'))
         return parser
 
     @classmethod
@@ -41,38 +44,27 @@ class POARModel(StableBaselinesRLObject):
     def train(self, args, callback, env_kwargs=None, train_kwargs=None):
         if train_kwargs is None:
             train_kwargs = {}
+        losses_weights_dict = OrderedDict()
+        split_dimensions = OrderedDict()
 
-        assert not (self.policy in ['lstm', 'lnlstm', 'cnnlstm', 'cnnlnlstm'] and args.num_cpu % 4 != 0), \
-            "Error: Reccurent policies must have num cpu at a multiple of 4."
-
-        if "lstm" in args.policy:
-            param_kwargs = {
-                "verbose": 1,
-                "n_steps": 609,
-                "ent_coef": 0.06415865069774951,
-                "learning_rate": 0.004923676735761618,
-                "vf_coef": 0.056219345567007695,
-                "max_grad_norm": 0.19232704980689763,
-                "gamma": 0.9752388470759489,
-                "lam": 0.3987544314875193,
-                "nminibatches": 4,
-                "noptepochs": 8
-            }
-        else:
-            param_kwargs = {
-                "verbose": 1,
-                "n_steps": 128,
-                "ent_coef": 0.01,
-                "learning_rate": lambda f: f * 2.5e-4,
-                "vf_coef": 0.5,
-                "max_grad_norm": 0.5,
-                "gamma": 0.99,
-                "lam": 0.95,
-                "nminibatches": 4,
-                "noptepochs": 4,
-                "cliprange": 0.2,
-                "state_dim": args.state_dim,
-                "srl_weight": args.srl_weight
-            }
+        for loss, weight, split_dim in args.losses:
+            losses_weights_dict[loss] = weight
+            split_dimensions[loss] = split_dim
+        param_kwargs = {
+            "verbose": 1,
+            "n_steps": 128,
+            "ent_coef": 0.01,
+            "learning_rate": lambda f: f * 2.5e-4,
+            "srl_lr": lambda f: f * 1e-3,
+            "vf_coef": 0.5,
+            "max_grad_norm": 0.5,
+            "gamma": 0.99,
+            "lam": 0.95,
+            "nminibatches": 4,
+            "noptepochs": 4,
+            "cliprange": 0.2,
+            "split_dim": split_dimensions,
+            "srl_weight": losses_weights_dict
+        }
 
         super().train(args, callback, env_kwargs, {**param_kwargs, **train_kwargs})

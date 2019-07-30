@@ -24,6 +24,7 @@ class POAR(ActorCriticRLModel):
 
     :param policy: (ActorCriticPolicy or str) The policy model to use (MlpPolicy, CnnPolicy, CnnLstmPolicy, ...)
     :param env: (Gym environment or str) The environment to learn from (if registered in Gym, can be str)
+    :parma srl_weight: (OrderDict) to save the weight of different srl_model
     :param gamma: (float) Discount factor
     :param n_steps: (int) The number of steps to run for each environment per update
         (i.e. batch size is n_steps * n_env where n_env is number of environment copies running in parallel)
@@ -51,9 +52,9 @@ class POAR(ActorCriticRLModel):
     """
 
     def __init__(
-            self, policy, env, gamma=0.99, n_steps=128, ent_coef=0.01, learning_rate=2.5e-4, vf_coef=0.5, srl_lr=1e3,
-            max_grad_norm=0.5, lam=0.95, nminibatches=4, noptepochs=4, cliprange=0.2, cliprange_vf=None, state_dim=200,
-            srl_weight=(1, 1, 1, 1, 1), verbose=0, tensorboard_log=None, _init_setup_model=True, policy_kwargs=None,
+            self, policy, env, srl_weight, gamma=0.99, n_steps=128, ent_coef=0.01, learning_rate=2.5e-4, vf_coef=0.5,
+            srl_lr=0.001, max_grad_norm=0.5, lam=0.95, nminibatches=4, noptepochs=4, cliprange=0.2, cliprange_vf=None,
+            split_dim=200, verbose=0, tensorboard_log=None, _init_setup_model=True, policy_kwargs=None,
             full_tensorboard_log=False):
 
         super(
@@ -68,7 +69,7 @@ class POAR(ActorCriticRLModel):
         self.max_grad_norm = max_grad_norm
         self.gamma = gamma
         self.lam = lam
-        self.state_dim = state_dim
+        self.split_dim = split_dim
         self.srl_weight = srl_weight
         self.nminibatches = nminibatches
         self.noptepochs = noptepochs
@@ -151,7 +152,7 @@ class POAR(ActorCriticRLModel):
                     self.n_envs,
                     1,
                     n_batch_step,
-                    state_dim=self.state_dim,
+                    split_dim=self.split_dim,
                     reuse=False,
                     **self.policy_kwargs)
                 with tf.variable_scope("train_model", reuse=True,
@@ -164,7 +165,7 @@ class POAR(ActorCriticRLModel):
                         self.nminibatches,
                         self.n_steps,
                         n_batch_train,
-                        state_dim=self.state_dim,
+                        split_dim=self.split_dim,
                         reuse=True,
                         **self.policy_kwargs)
 
@@ -234,43 +235,57 @@ class POAR(ActorCriticRLModel):
                     loss = (self.pg_loss - self.entropy * self.ent_coef + self.vf_loss * self.vf_coef)
 
                     # SRL loss
+                    weight_dict = {}
+                    srl_loss_dict = {}
                     # reconstruction loss
-                    ae_loss = tf.square(train_model.processed_obs - train_model.reconstruct_obs)
-                    ae_loss += tf.square(train_model.next_processed_obs - train_model.next_reconstruct_obs)
-                    ae_loss = 0.5 * tf.reduce_mean(ae_loss)
-                    # TODO: a continuous version should be implemented
-                    inverse_loss = tf.reduce_mean(
-                        tf.nn.softmax_cross_entropy_with_logits_v2(
+                    if "autoencoder" in self.srl_weight:
+                        weight_dict["reconstruction_loss"] = self.srl_weight["autoencoder"]
+                        ae_loss = tf.square(train_model.processed_obs - train_model.reconstruct_obs)
+                        ae_loss += tf.square(train_model.next_processed_obs - train_model.next_reconstruct_obs)
+                        ae_loss = 0.5 * tf.reduce_mean(ae_loss)
+                        srl_loss_dict["reconstruction_loss"] = ae_loss
+                    if "inverse" in self.srl_weight:
+                        # TODO: a continuous version should be implemented
+                        weight_dict["inverse_loss"] = self.srl_weight["inverse"]
+                        inverse_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
                             labels=tf.one_hot(
                                 self.action_ph,
                                 self.action_space.n),
                             logits=train_model.srl_action))
-                    forward_loss = tf.reduce_mean(tf.square(train_model.next_latent_obs - train_model.srl_state))
-                    clip_reward = tf.one_hot(tf.cast(tf.clip_by_value(self.true_reward_ph, clip_value_min=0,
-                                                                      clip_value_max=1), tf.int32), 2)
-                    reward_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
+                        srl_loss_dict["inverse_loss"] = inverse_loss
+                    if "forward" in self.srl_weight:
+                        weight_dict["forward_loss"] = self.srl_weight["forward"]
+                        forward_loss = tf.reduce_mean(tf.square(train_model.next_latent_obs - train_model.srl_state))
+                        srl_loss_dict["forward_loss"] = forward_loss
+                    if "reward" in self.srl_weight:
+                        weight_dict["reward_loss"] = self.srl_weight["reward"]
+                        clip_reward = tf.one_hot(tf.cast(tf.clip_by_value(self.true_reward_ph, clip_value_min=0,
+                                                                          clip_value_max=1), tf.int32), 2)
+                        reward_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
                             logits=train_model.srl_reward, labels=clip_reward))
-
-                    # TODO should be as a hyper parameters for Cd (coming from COAR)
-                    cd = 5.0
-                    state_entropy_loss = tf.exp(-cd * tf.norm(
-                        train_model.latent_obs - train_model.next_latent_obs))
-                    state_entropy_loss += tf.math.maximum(
-                        tf.math.maximum(tf.norm(train_model.latent_obs, ord=np.inf)**2 - 1,
-                                        tf.norm(train_model.next_latent_obs, ord=np.inf)**2 - 1), 0)
-
-                    weight_dict = {"reconstruction_loss": self.srl_weight[0],
-                                   "forward_loss": self.srl_weight[1],
-                                   "inverse_loss": self.srl_weight[2],
-                                   "state_entropy_loss": self.srl_weight[3],
-                                   "reward_loss": self.srl_weight[4]
-                                   }
-                    srl_loss_dict = {"reconstruction_loss": ae_loss,
-                                     "forward_loss": forward_loss,
-                                     "inverse_loss": inverse_loss,
-                                     "state_entropy_loss": state_entropy_loss,
-                                     "reward_loss": reward_loss
-                                     }
+                        srl_loss_dict["reward_loss"] = reward_loss
+                    if "entropy" in self.srl_weight:
+                        # TODO should be as a hyper parameters for Cd (coming from COAR)
+                        weight_dict["state_entropy_loss"] = self.srl_weight["entropy"]
+                        cd = 5.0
+                        state_entropy_loss = tf.exp(-cd * tf.norm(
+                            train_model.latent_obs - train_model.next_latent_obs))
+                        state_entropy_loss += tf.math.maximum(
+                            tf.math.maximum(tf.norm(train_model.latent_obs, ord=np.inf)**2 - 1,
+                                            tf.norm(train_model.next_latent_obs, ord=np.inf)**2 - 1), 0)
+                        srl_loss_dict["state_entropy_loss"] = state_entropy_loss
+                    # weight_dict = {"reconstruction_loss": self.srl_weight[0],
+                    #                "forward_loss": self.srl_weight[1],
+                    #                "inverse_loss": self.srl_weight[2],
+                    #                "state_entropy_loss": self.srl_weight[3],
+                    #                "reward_loss": self.srl_weight[4]
+                    #                }
+                    # srl_loss_dict = {"reconstruction_loss": ae_loss,
+                    #                  "forward_loss": forward_loss,
+                    #                  "inverse_loss": inverse_loss,
+                    #                  "state_entropy_loss": state_entropy_loss,
+                    #                  "reward_loss": reward_loss
+                    #                  }
                     self.srl_loss_list = []
                     srl_loss = 0
                     for srl_loss_name in weight_dict:
@@ -281,14 +296,13 @@ class POAR(ActorCriticRLModel):
                             self.loss_names.append(srl_loss_name)
                             tf.summary.scalar(
                                 srl_loss_name, srl_loss_dict[srl_loss_name])
-                    # TODO: seperate them into two optimizer
-                    # loss += srl_loss * self.srl_lr_ph
-
+                    # loss += srl_loss
                     tf.summary.scalar('entropy_loss', self.entropy)
                     tf.summary.scalar('policy_gradient_loss', self.pg_loss)
                     tf.summary.scalar('value_function_loss', self.vf_loss)
                     tf.summary.scalar('approximate_kullback-leibler', self.approxkl)
                     tf.summary.scalar('clip_factor', self.clipfrac)
+                    tf.summary.scalar('srl_loss', srl_loss)
                     tf.summary.scalar('loss', loss)
 
                     with tf.variable_scope('model'):
@@ -308,6 +322,7 @@ class POAR(ActorCriticRLModel):
                 with tf.variable_scope("input_info", reuse=False):
                     tf.summary.scalar('discounted_rewards', tf.reduce_mean(self.rewards_ph))
                     tf.summary.scalar('learning_rate', tf.reduce_mean(self.learning_rate_ph))
+                    tf.summary.scalar('SRL_learning_rate', tf.reduce_mean(self.srl_lr_ph))
                     tf.summary.scalar('advantage', tf.reduce_mean(self.advs_ph))
                     tf.summary.scalar('clip_range', tf.reduce_mean(self.clip_range_ph))
                     if self.clip_range_vf_ph is not None:
@@ -344,8 +359,8 @@ class POAR(ActorCriticRLModel):
             values, neglogpacs, update, writer, states=None, cliprange_vf=None):
         """
         Training of POAR Algorithm
-
         :param learning_rate: (float) learning rate
+        :param srl_lr: (float) learning rate for the srl part
         :param cliprange: (float) Clipping factor
         :param obs: (np.ndarray) The current observation of the environment
         :param next_obs: successive observation
@@ -418,8 +433,8 @@ class POAR(ActorCriticRLModel):
             loss_vals = self.sess.run(running_list, td_map)[2:]
         return loss_vals
 
-    def learn(self, total_timesteps, callback=None, seed=None, log_interval=1,
-              tb_log_name="POAR", reset_num_timesteps=True):
+    def learn(self, total_timesteps, callback=None, seed=None, log_interval=1, tb_log_name="POAR", 
+              reset_num_timesteps=True):
         # Transform to callable if needed
         self.learning_rate = get_schedule_fn(self.learning_rate)
         self.cliprange = get_schedule_fn(self.cliprange)
@@ -457,15 +472,15 @@ class POAR(ActorCriticRLModel):
                 batch_reward.append(true_reward)
                 if update % (n_updates//1000) == 0:
                     latent = np.concatenate(batch_latent)
-                    true_reward = np.concatenate(batch_reward)
+                    batch_reward = np.concatenate(batch_reward)
                     fig, ax = plt.subplots(nrows=1, ncols=2)
                     # plt.imshow(reconstruct_image[0])
                     # plt.savefig("reconstruction/reconstruction{}".format(update)+".png")
 
                     latent_pca = pca(latent)
-                    zeros = latent_pca[np.where(true_reward == 0)].T
-                    positive = latent_pca[np.where(true_reward > 0)].T
-                    negative = latent_pca[np.where(true_reward < 0)].T
+                    zeros = latent_pca[np.where(batch_reward == 0)].T
+                    positive = latent_pca[np.where(batch_reward > 0)].T
+                    negative = latent_pca[np.where(batch_reward < 0)].T
                     # plt.scatter(zeros[0], zeros[1], c='y',s=5, label = 'null')
                     # plt.scatter(positive[0], positive[1], c='r', s=5, label='+')
                     # plt.scatter(negative[0], negative[1], c='r', s=5, label='-')

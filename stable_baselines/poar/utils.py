@@ -11,7 +11,6 @@ _BATCH_NORM_DECAY = 0.997
 _BATCH_NORM_EPSILON = 1e-5
 
 
-
 def conv(input_tensor, scope, *, n_filters, filter_size, stride,
          pad='VALID', init_scale=1.0, data_format='NHWC', one_dim_bias=False):
     """
@@ -77,7 +76,7 @@ def linear(input_tensor, scope, n_hidden, *, init_scale=1.0, init_bias=0.0):
 
 
 def conv_t(input_tensor, scope, *, n_filters, filter_size, stride, output_shape=None,
-         pad='VALID', init_scale=1.0, data_format='NHWC', one_dim_bias=False):
+           pad='VALID', init_scale=1.0, data_format='NHWC', one_dim_bias=False):
     """
     Creates a 2d convolutional layer for TensorFlow
 
@@ -126,10 +125,10 @@ def conv_t(input_tensor, scope, *, n_filters, filter_size, stride, output_shape=
 def batch_norm(inputs, mode='NHWC'):
     if mode == 'NHWC':
         norm_func = tf.layers.BatchNormalization(axis=-1,momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON,
-                                                    center=True, scale=True, fused=True)
+                                                 center=True, scale=True, fused=True)
     elif mode == 'NCHW':
         norm_func = tf.layers.BatchNormalization(axis=1,momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON,
-                                                    center=True, scale=True, fused=True)
+                                                 center=True, scale=True, fused=True)
     else:
         raise NotImplementedError
     return norm_func(inputs)

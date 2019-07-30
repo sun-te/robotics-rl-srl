@@ -111,7 +111,7 @@ class SRLActorCriticPolicy(BasePolicy):
     :param scale: (bool) whether or not to scale the input
     """
 
-    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, state_dim=200, reuse=False, scale=False):
+    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, split_dim=(), reuse=False, scale=False):
         super(SRLActorCriticPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse,
                                                    scale=scale)
         self._pdtype = make_proba_dist_type(ac_space)
@@ -128,7 +128,8 @@ class SRLActorCriticPolicy(BasePolicy):
         self.next_latent_obs = None
         self.latent_obs = None
         self.srl_reward = None
-        self._state_dim =state_dim
+        self._split_dim = split_dim
+
     def _setup_init(self):
         """
         sets up the distibutions, actions, and value
@@ -150,9 +151,11 @@ class SRLActorCriticPolicy(BasePolicy):
             else:
                 self._policy_proba = []  # it will return nothing, as it is not implemented
             self._value_flat = self.value_fn[:, 0]
+
     @property
-    def state_dim(self):
-        return self.state_dim
+    def split_dim(self):
+        return self._split_dim
+
     @property
     def pdtype(self):
         """ProbabilityDistributionType: type of the distribution for stochastic actions."""
@@ -275,9 +278,6 @@ class FeedForwardPolicy(SRLActorCriticPolicy):
             else:
                 self.reconstruct_obs = self.processed_obs
                 pi_latent = vf_latent = nature_cnn(self.processed_obs, **kwargs)
-            #self.reconstruct_obs, latent_obs = cnn_autoencoder2(self.processed_obs, state_dim=200, **kwargs)
-            #
-
 
             self._value_fn = linear(vf_latent, 'vf', 1)
 
@@ -289,10 +289,10 @@ class FeedForwardPolicy(SRLActorCriticPolicy):
     def step(self, obs, state=None, mask=None, deterministic=False):
         if deterministic:
             action, value, neglogp = self.sess.run([self.deterministic_action, self.value_flat, self.neglogp],
-                                                                  {self.obs_ph: obs})
+                                                   {self.obs_ph: obs})
         else:
             action, value, neglogp = self.sess.run([self.action, self.value_flat, self.neglogp],
-                                                                  {self.obs_ph: obs})
+                                                   {self.obs_ph: obs})
         return action, value, self.initial_state, neglogp
 
     def proba_step(self, obs, state=None, mask=None):
@@ -305,23 +305,25 @@ class FeedForwardPolicy(SRLActorCriticPolicy):
 class NatureCnnPolicy(FeedForwardPolicy):
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
         super(NatureCnnPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
-                                        feature_extraction="cnn", **_kwargs)
+                                              feature_extraction="cnn", **_kwargs)
+
 
 class AEPolicy(FeedForwardPolicy):
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
         super(AEPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
-                                        feature_extraction='cnn', structure='autoencoder', **_kwargs)
+                                       feature_extraction='cnn', structure='autoencoder', **_kwargs)
+
 
 class AEBNPolicy(FeedForwardPolicy):
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
         super(AEBNPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
-                                        feature_extraction='cnn', structure='autoencoder_bn', **_kwargs)
+                                         feature_extraction='cnn', structure='autoencoder_bn', **_kwargs)
 
 
 class AEMlpPolicy(FeedForwardPolicy):
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
         super(AEMlpPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
-                                        feature_extraction='cnn', structure='autoencoder_mlp', **_kwargs)
+                                          feature_extraction='cnn', structure='autoencoder_mlp', **_kwargs)
 
 
 class MlpPolicy(FeedForwardPolicy):
@@ -345,9 +347,9 @@ class MlpPolicy(FeedForwardPolicy):
 
 class SRLPolicy(SRLActorCriticPolicy):
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, layers=None, net_arch=None,
-                 state_dim=200, feature_extraction="cnn", structure='autoencoder', **kwargs):
+                 split_dim=200, feature_extraction="cnn", structure='autoencoder', **kwargs):
         super(SRLPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse,
-                                                scale=(feature_extraction == "cnn"), )
+                                        scale=(feature_extraction == "cnn"))
         self._kwargs_check(feature_extraction, kwargs)
 
         # placeholder for the next observation
@@ -365,24 +367,11 @@ class SRLPolicy(SRLActorCriticPolicy):
         if net_arch is None:
             if layers is None:
                 layers = [64, 64]
+            # preserved for further use, for example, pi_latent could be passed in to a MLP strutre
             net_arch = [dict(vf=layers, pi=layers)]
         with tf.variable_scope("model", reuse=reuse):
             # By default, we consider the inputs are raw_pixels
-            if structure == 'autoencoder':
-                encoder_fn = nature_autoencoder
-            elif structure == 'naive_autoencoder':
-                encoder_fn = naive_autoencoder
-            else:
-                encoder_fn = encoder
-
-            self.next_reconstruct_obs, self.next_latent_obs = encoder_fn(self.next_processed_obs, state_dim=state_dim)
-            self.reconstruct_obs, self.latent_obs = encoder_fn(self.processed_obs, state_dim=state_dim)
-            pi_latent = vf_latent = self.latent_obs
-                # We make nex_latent_obs to be observable from outside to compute the loss with srl_state
-            with tf.variable_scope('SRL'):
-                self.srl_action = inverse_net(self.latent_obs[...,-2:], self.next_latent_obs[...,-2:], ac_space)
-                self.srl_state = forward_net(self.latent_obs[...,-4:-2], self._action_ph, ac_space, state_dim=state_dim)
-                self.srl_reward = reward_net(self.latent_obs[...,:-4], self.next_latent_obs[...,:-4], reward_dim=2)
+            pi_latent, vf_latent = self.srl_scope(split_dim, ac_space, structure)
             # pi_latent, vf_latent = mlp_extractor(self.latent_obs, net_arch, act_fun)
             self._value_fn = linear(vf_latent, 'vf', 1)
             self._proba_distribution, self._policy, self.q_value = \
@@ -390,18 +379,54 @@ class SRLPolicy(SRLActorCriticPolicy):
 
         self._setup_init()
 
+    def srl_scope(self, split_dim, ac_space, structure='autoencoder'):
+        if structure == 'autoencoder':
+            encoder_fn = nature_autoencoder
+        elif structure == 'naive_autoencoder':
+            encoder_fn = naive_autoencoder
+        else:
+            encoder_fn = encoder
+        state_dim = 0
+        previous_dim = 0
+        dim_attr_dict = {}
+        for key in split_dim:
+            if split_dim[key] < 0:
+                assert state_dim != previous_dim, "Error: the first dimension should not be 0"
+                dim_attr_dict[key] = (previous_dim, state_dim)
+            else:
+                previous_dim = state_dim
+                state_dim += split_dim[key]
+                dim_attr_dict[key] = (previous_dim, state_dim)
+        self.next_reconstruct_obs, self.next_latent_obs = encoder_fn(self.next_processed_obs, state_dim=state_dim)
+        self.reconstruct_obs, self.latent_obs = encoder_fn(self.processed_obs, state_dim=state_dim)
+        pi_latent = vf_latent = self.latent_obs
+        # We make nex_latent_obs to be observable from outside to compute the loss with srl_state
+        with tf.variable_scope('SRL'):
+            if "forward" in split_dim:
+                self.srl_state = forward_net(
+                    self.latent_obs[..., dim_attr_dict["forward"][0]:dim_attr_dict["forward"][1]],
+                    self._action_ph, ac_space, state_dim=state_dim)
+            if "inverse" in split_dim:
+                self.srl_action = inverse_net(
+                    self.latent_obs[..., dim_attr_dict["inverse"][0]:dim_attr_dict["inverse"][1]],
+                    self.next_latent_obs[..., dim_attr_dict["inverse"][0]:dim_attr_dict["inverse"][1]], ac_space)
+            if "reward" in split_dim:
+                self.srl_reward = reward_net(
+                    self.latent_obs[..., dim_attr_dict["reward"][0]:dim_attr_dict["reward"][1]],
+                    self.next_latent_obs[..., dim_attr_dict["reward"][0]:dim_attr_dict["reward"][1]], reward_dim=2)
+        return pi_latent, vf_latent
+
     def step(self, obs, next_obs=None, state=None, mask=None, deterministic=False):
         if deterministic:
             action, value, neglogp = self.sess.run([self.deterministic_action, self.value_flat, self.neglogp],
                                                    {self.obs_ph: obs})
         else:
             action, value, neglogp = self.sess.run([self.action, self.value_flat, self.neglogp],
-                                                    {self.obs_ph: obs})
+                                                   {self.obs_ph: obs})
 
-
-        p_obs, ae_obs, latent = self.sess.run([self.processed_obs, self.reconstruct_obs, self.latent_obs], {self.obs_ph: obs})
+        p_obs, ae_obs, latent = self.sess.run([self.processed_obs, self.reconstruct_obs, self.latent_obs],
+                                              {self.obs_ph: obs})
         return action, value, self.initial_state, neglogp, ae_obs, latent
-
 
     def proba_step(self, obs, state=None, mask=None):
         return self.sess.run(self.policy_proba, {self.obs_ph: obs})
@@ -419,5 +444,5 @@ class NAEPolicy(SRLPolicy):
 class AESRLPolicy(SRLPolicy):
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
         super(AESRLPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
-                                        feature_extraction='cnn', structure='autoencoder', **_kwargs)
+                                          feature_extraction='cnn', structure='autoencoder', **_kwargs)
 
