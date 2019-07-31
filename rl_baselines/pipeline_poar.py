@@ -12,7 +12,7 @@ from rl_baselines.registry import registered_rl
 from environments.registry import registered_env
 from state_representation.registry import registered_srl
 from state_representation import SRLType
-from srl_zoo.utils import printGreen, printRed
+from srl_zoo.utils import printGreen, printRed, printYellow
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # used to remove debug info of tensorflow
 
@@ -23,7 +23,7 @@ def main():
                                             ' rl_baselines.train')
     parser.add_argument('--algo', type=str, default='poar', help='OpenAI baseline to use',
                         choices=list(registered_rl.keys()))
-    parser.add_argument('--env', type=str, nargs='+', default=["MobileRobotGymEnv-v0"], help='environment ID(s)',
+    parser.add_argument('--env', type=str, nargs='+', default=["OmnirobotEnv-v0","MobileRobotGymEnv-v0"], help='environment ID(s)',
                         choices=list(registered_env.keys()))
     parser.add_argument('--timesteps', type=int, default=2e6, help='number of timesteps the baseline should run')
     parser.add_argument('-v', '--verbose', action='store_true', default=False, help='Display baseline STDOUT')
@@ -36,7 +36,7 @@ def main():
 
     # returns the parsed arguments, and the rest are assumed to be arguments for rl_baselines.train
     args, train_args = parser.parse_known_args()
-    envs = args.env
+    envs = ["OmnirobotEnv-v0"]
     seeds = np.arange(args.num_iteration)
 
     printGreen("\nRunning {} benchmarks {} times...".format(args.algo, args.num_iteration))
@@ -48,45 +48,53 @@ def main():
     # 'reconstruction, forward, inverse, state_entropy, reward'
     srl_weights = [
                     # compare the loss on the autoencoder
-                    # [1, 1, 1, 0, 0],
-                    # [5, 1,1,0,0],
-                    # [10,1,1,0,0],
-                    # [1, 5,1,0,0],
-                    # [1,10,1,0,0],
-                    [1, 1, 5, 0, 5]
-                    # [1, 1, 10, 0,0],
-                    # [0,0,0,0,0]
+                    ["autoencoder:2:200", "reward:0:-1", "inverse:1:-1", "forward:0:-1", "entropy:0:-1"], # combination
+                    ["autoencoder:2:200", "reward:5:-1", "inverse:1:-1", "forward:0:-1", "entropy:0:-1"], # combination
+                    ["autoencoder:1:196", "reward:0:-1", "inverse:2:4", "forward:0:-1", "entropy:0:-1"],  # split
+                    ["autoencoder:1:200", "reward:5:-1", "inverse:2:4", "forward:1:4", "entropy:0:-1"],  # split
+                    # ["autoencoder:5:100", "reward:5:-1", "inverse:1:4", "forward:1:4", "entropy:0:-1"],  # split
+                    # ["autoencoder:1:100", "reward:1:-1", "inverse:5:4", "forward:1:4", "entropy:0:-1"],  # split
                    ]
-    srl_name = ['a','f','i','e','r']
+    srl_name = ['a','r','i','f','e']
     if args.verbose:
         # None here means stdout of terminal for subprocess.call
         stdout = None
     else:
         # shut the g** d** mouth
         stdout = open(os.devnull, 'w')
+    tasks = ['-cc']#, '-sc', '-esc']
 
     for i in range(1, args.num_iteration+1):
         for env in envs:
-            printGreen(
-                "\nIteration_num={} (seed: {}), Environment='{}', Algo='{}'".format(i, seeds[i-1], env, args.algo))
-            for weights in srl_weights:
-
-                log_dir = 'logs/POAR/srl_'
-                weight_args = ['--srl-weight']
-                for j, w in enumerate(weights):
-                    if w > 0:
-                        log_dir += srl_name[j]+str(w)
-                    weight_args += [str(w)]
-                log_dir += '/'
-
-                loop_args = ['--seed', str(seeds[i-1]), '--algo', args.algo, '--env', env, '--srl-model', 'raw_pixels',
-                             '--num-timesteps', str(int(args.timesteps)),
-                             '--log-dir', log_dir, '--gpu', str(args.gpu), '--num-cpu', '4',
-                             '-r']
-                loop_args += weight_args
-                poar_args = ['--state-dim', '200','--structure', 'srl_autoencoder']
-                loop_args += poar_args
-                subprocess.call(['python', '-m', 'rl_baselines.train'] + train_args + loop_args, stdout=stdout)
+            for task in tasks:
+                printGreen(
+                    "\nIteration_num={} (seed: {}), Environment='{}', Algo='{}'".format(i, seeds[i-1], env, args.algo))
+                for weights in srl_weights:
+                    name = "combi"
+                    dim = ""
+                    for w in weights:
+                        if "autoencoder" in w:
+                            dim = w.split(":")[-1]
+                        if "autoencoder" not in w and int(w.split(":")[-1]) > 0:
+                            name = "split"
+                            break
+                    log_dir = 'logs/POAR{}/srl{}_{}_'.format(task, dim, name)
+                    weight_args = ['--losses']
+                    for j, w in enumerate(weights):
+                        weight = int(w.split(":")[1])
+                        if  weight > 0:
+                            log_dir += srl_name[j]+str(weight)
+                        weight_args += [str(w)]
+                    log_dir += '/'
+                    loop_args = ['--seed', str(seeds[i-1]), '--algo', args.algo, '--env', env, '--srl-model', 'raw_pixels',
+                                 '--num-timesteps', str(int(args.timesteps)),
+                                 '--log-dir', log_dir, '--gpu', str(args.gpu), '--num-cpu', '2',
+                                 task]
+                    loop_args += weight_args
+                    poar_args = ['--structure', 'srl_autoencoder']
+                    loop_args += poar_args
+                    printYellow(loop_args)
+                    subprocess.call(['python', '-m', 'rl_baselines.train'] + train_args + loop_args, stdout=stdout)
 
 
 if __name__ == '__main__':

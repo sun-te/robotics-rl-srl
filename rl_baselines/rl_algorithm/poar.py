@@ -55,7 +55,7 @@ class POARModel(StableBaselinesRLObject):
             "n_steps": 128,
             "ent_coef": 0.01,
             "learning_rate": lambda f: f * 2.5e-4,
-            "srl_lr": lambda f: f * 1e-3,
+            "srl_lr": lambda f: f * 2.5e-4,
             "vf_coef": 0.5,
             "max_grad_norm": 0.5,
             "gamma": 0.99,

@@ -347,7 +347,7 @@ class MlpPolicy(FeedForwardPolicy):
 
 class SRLPolicy(SRLActorCriticPolicy):
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, layers=None, net_arch=None,
-                 split_dim=200, feature_extraction="cnn", structure='autoencoder', **kwargs):
+                 act_fun=tf.tanh, split_dim=200, feature_extraction="cnn", structure='autoencoder', **kwargs):
         super(SRLPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse,
                                         scale=(feature_extraction == "cnn"))
         self._kwargs_check(feature_extraction, kwargs)
@@ -371,8 +371,9 @@ class SRLPolicy(SRLActorCriticPolicy):
             net_arch = [dict(vf=layers, pi=layers)]
         with tf.variable_scope("model", reuse=reuse):
             # By default, we consider the inputs are raw_pixels
-            pi_latent, vf_latent = self.srl_scope(split_dim, ac_space, structure)
-            # pi_latent, vf_latent = mlp_extractor(self.latent_obs, net_arch, act_fun)
+            pi_latent = vf_latent = self.srl_scope(split_dim, ac_space, structure)
+            # latent_obs = self.srl_scope(split_dim, ac_space, structure)
+            # pi_latent, vf_latent = mlp_extractor(latent_obs, net_arch, act_fun)
             self._value_fn = linear(vf_latent, 'vf', 1)
             self._proba_distribution, self._policy, self.q_value = \
                 self.pdtype.proba_distribution_from_latent(pi_latent, vf_latent, init_scale=0.01)
@@ -399,7 +400,6 @@ class SRLPolicy(SRLActorCriticPolicy):
                 dim_attr_dict[key] = (previous_dim, state_dim)
         self.next_reconstruct_obs, self.next_latent_obs = encoder_fn(self.next_processed_obs, state_dim=state_dim)
         self.reconstruct_obs, self.latent_obs = encoder_fn(self.processed_obs, state_dim=state_dim)
-        pi_latent = vf_latent = self.latent_obs
         # We make nex_latent_obs to be observable from outside to compute the loss with srl_state
         with tf.variable_scope('SRL'):
             if "forward" in split_dim:
@@ -414,7 +414,7 @@ class SRLPolicy(SRLActorCriticPolicy):
                 self.srl_reward = reward_net(
                     self.latent_obs[..., dim_attr_dict["reward"][0]:dim_attr_dict["reward"][1]],
                     self.next_latent_obs[..., dim_attr_dict["reward"][0]:dim_attr_dict["reward"][1]], reward_dim=2)
-        return pi_latent, vf_latent
+        return self.latent_obs
 
     def step(self, obs, next_obs=None, state=None, mask=None, deterministic=False):
         if deterministic:
