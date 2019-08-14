@@ -346,6 +346,9 @@ class MlpPolicy(FeedForwardPolicy):
 
 
 class SRLPolicy(SRLActorCriticPolicy):
+    """
+    SRL policy that can combine or split dimension for SRL model. An implementation of SRL in tensorflow
+    """
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, layers=None, net_arch=None,
                  act_fun=tf.tanh, split_dim=200, feature_extraction="cnn", structure='autoencoder', **kwargs):
         super(SRLPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse,
@@ -381,6 +384,13 @@ class SRLPolicy(SRLActorCriticPolicy):
         self._setup_init()
 
     def srl_scope(self, split_dim, ac_space, structure='autoencoder'):
+        """
+        The manager method that include all SRL models
+        :param split_dim: dict with indicated dimension for each model
+        :param ac_space:
+        :param structure: the autoencoder structure
+        :return:
+        """
         if structure == 'autoencoder':
             encoder_fn = nature_autoencoder
         elif structure == 'naive_autoencoder':
@@ -427,6 +437,15 @@ class SRLPolicy(SRLActorCriticPolicy):
         return self.latent_obs
 
     def step(self, obs, next_obs=None, state=None, mask=None, deterministic=False):
+        """
+        for the model to take action, predict value function
+        :param obs:
+        :param next_obs:
+        :param state:
+        :param mask:
+        :param deterministic:
+        :return:
+        """
         if deterministic:
             action, value, neglogp = self.sess.run([self.deterministic_action, self.value_flat, self.neglogp],
                                                    {self.obs_ph: obs})

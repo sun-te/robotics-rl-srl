@@ -123,6 +123,12 @@ def conv_t(input_tensor, scope, *, n_filters, filter_size, stride, output_shape=
 
 
 def batch_norm(inputs, mode='NHWC'):
+    """
+    return a tensor that is batch-nomed
+    :param inputs:
+    :param mode: by default, channel last
+    :return:
+    """
     if mode == 'NHWC':
         norm_func = tf.layers.BatchNormalization(axis=-1,momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON,
                                                  center=True, scale=True, fused=True)
@@ -136,6 +142,20 @@ def batch_norm(inputs, mode='NHWC'):
 
 def batch_norm_relu_deconv(input_tensor, scope, *, n_filters, filter_size, stride, output_shape=None,
                            pad='VALID', init_scale=1.0, data_format='NHWC', one_dim_bias=False):
+    """
+    a deconvolution with batch normalization and relu activation
+    :param input_tensor:
+    :param scope:
+    :param n_filters:
+    :param filter_size:
+    :param stride:
+    :param output_shape:
+    :param pad:
+    :param init_scale:
+    :param data_format:
+    :param one_dim_bias:
+    :return:
+    """
     if isinstance(filter_size, list) or isinstance(filter_size, tuple):
         assert len(filter_size) == 2, \
             "Filter size must have 2 elements (height, width), {} were given".format(len(filter_size))
@@ -204,6 +224,13 @@ def autoencoderMP(obs, state_dim):
     return output, latent
 
 def nature_autoencoder(obs, state_dim, reuse=tf.AUTO_REUSE):
+    """
+    The autoencoder structure that has encoder similar to the original structure in PPO2
+    :param obs:
+    :param state_dim:
+    :param reuse:
+    :return:
+    """
     activation = tf.nn.relu
     with tf.variable_scope('encoder1', reuse=reuse):
         e1 = activation(conv(scope='conv2d', input_tensor=obs, n_filters=64, filter_size=8, stride=4, pad='SAME'))
@@ -291,6 +318,14 @@ def inverse_net(state, next_state, ac_space):
             return tf.nn.softmax(linear(input_tensor=layer2, scope='srl_action', n_hidden=ac_space.n))
 
 def forward_net(state, action, ac_space, state_dim=512):
+    """
+    predict next state with the current state and the action
+    :param state:
+    :param action:
+    :param ac_space:
+    :param state_dim:
+    :return:
+    """
     activation = tf.nn.relu
     with tf.variable_scope("forward"):
         if isinstance(ac_space, Box):
@@ -303,6 +338,14 @@ def forward_net(state, action, ac_space, state_dim=512):
 
 
 def transition_net(state, action, ac_space, state_dim=512):
+    """
+    predict the change of the state, s_{t+1} = s_t + transition
+    :param state:
+    :param action:
+    :param ac_space:
+    :param state_dim:
+    :return:
+    """
     activation = tf.nn.relu
 
     with tf.variable_scope("transition"):
@@ -316,6 +359,13 @@ def transition_net(state, action, ac_space, state_dim=512):
 
 
 def reward_net(state, next_state, reward_dim=1):
+    """
+    To predict the reward, this network is used for a classification problem, a dense reward should be implented further
+    :param state:
+    :param next_state:
+    :param reward_dim:
+    :return:
+    """
     activation = tf.nn.relu
 
     with tf.variable_scope("reward"):
@@ -326,7 +376,6 @@ def reward_net(state, next_state, reward_dim=1):
 
 def pca(data, dim=2):
     # preprocess the data
-
     X = data
     X_mean = np.mean(X, axis=0)
     X = X - X_mean

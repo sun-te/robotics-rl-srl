@@ -94,7 +94,6 @@ def configureEnvAndLogFolder(args, env_kwargs, all_models):
     PLOT_TITLE = args.srl_model
     path = models.get(args.srl_model)
     args.log_dir += args.srl_model + "/"
-
     env_kwargs["srl_model"] = args.srl_model
     if registered_srl[args.srl_model][0] == SRLType.SRL:
         env_kwargs["use_srl"] = True

@@ -6,7 +6,7 @@ import numpy as np
 import seaborn as sns
 from matplotlib.ticker import FuncFormatter
 import json
-
+from ipdb import set_trace as tt
 from rl_baselines.visualize import  movingAverage, loadCsv,loadData
 from replay.aggregate_plots import lightcolors, darkcolors, millions
 from srl_zoo.utils import printGreen, printRed, printYellow
@@ -39,8 +39,47 @@ def loadEpisodesData(folder):
     x = np.arange(len(y))
     return x, y
 
+def policyregret(y_list, x, legends, y_max=None, normalized_by=None):
+    """
+    To compute the  policy regret
+    :param y_list: the rewards
+    :param x: episode number
+    :param legends: the name of each algorithm
+    :param y_max: (float) the best reward as a plafond
+    :return: a dict with key: the name of algo, and value a tuple of policy regrets, std estimator,
+    and the number of exp
+    """
+    if y_max is None:
+        y_max = 0
+        for y in y_list:
+            if np.max(y) > y_max:
+                y_max = np.max(y)
 
-def plotGatheredData(x_list,y_list,y_limits, timesteps,title,legends,no_display,truncate_x=-1,normalization=False):
+    regrets = {}
+
+    for y, name in zip(y_list, legends):
+        policy_r = np.trapz(y_max - y, x)
+        n_experiements = len(y)
+        std = np.std(policy_r) / n_experiements
+        regrets[name] = (np.mean(policy_r), std, n_experiements)
+    if normalized_by is not None:
+        assert normalized_by in legends
+        based_mean_regret = regrets[normalized_by][0]
+        for y, name in zip(y_list, legends):
+            policy_r = np.trapz(y_max - y, x) / based_mean_regret
+            n_experiements = len(y)
+            std = np.std(policy_r)
+            regrets[name] = (np.mean(policy_r), std, n_experiements)
+
+    return regrets
+
+
+
+
+
+
+def plotGatheredData(x_list,y_list, y_limits, timesteps,title,
+                     legends, no_display, truncate_x=-1, normalization=False):
     assert len(legends)==len(y_list)
     printGreen("{} Experiments".format(len(y_list)))
 
@@ -52,47 +91,58 @@ def plotGatheredData(x_list,y_list,y_limits, timesteps,title,legends,no_display,
     #To reformulize the data by the min_x
     for i in range(len(y_list)):
         y_list[i]=y_list[i][:, :min_x]
-    y_list=np.array(y_list)
+    regrets_dict = policyregret(y_list, x, legends, normalized_by="ppo2")
 
-    #print("Min, Max rewards:", np.min(y_list), np.max(y_list))
-
-
-    #Normalize the data between 0 and 1.
-    if (normalization):
-        y_limits = [-0.05, 1.05]
-        y_list   =(y_list-np.min(y_list))/(np.max(y_list)-np.min(y_list))
-
-    fig = plt.figure(title, figsize=[15,10])
-    for i in range(len(y_list)):
-        label = legends[i]
-        y = y_list[i][:, :min_x]
-
-        print('{}: {} experiments'.format(label, len(y)))
-        # Compute mean for different seeds
-        m = np.mean(y, axis=0)
-        # Compute standard error
-        s = np.squeeze(np.asarray(np.std(y, axis=0)))
-        n = y.shape[0]
-        plt.fill_between(x, m - s / np.sqrt(n), m + s / np.sqrt(n), color=lightcolors[i % len(lightcolors)], alpha=0.5)
-        plt.plot(x, m, color=darkcolors[i % len(darkcolors)], label=label, linewidth=2)
-
-    if timesteps:
-        formatter = FuncFormatter(millions)
-        plt.xlabel('Number of Timesteps')
-        fig.axes[0].xaxis.set_major_formatter(formatter)
-    else:
-        plt.xlabel('Number of Episodes')
-    if(normalization):
-        plt.ylabel('Normalized Rewards')
-    else:
-        plt.ylabel('Rewards')
-    plt.title(title, **fontstyle)
-    plt.ylim(y_limits)
-
-    plt.legend(framealpha=0.8, frameon=True, labelspacing=0.01, loc='lower right', fontsize=16)
-
-    if not no_display:
-        plt.show()
+    table = ""
+    for k in regrets_dict:
+        printYellow("{} experiments for algo: {}".format(regrets_dict[k][2], k))
+        algo_name = [s+" " for s in k.split("_")]
+        name = ""
+        for s in algo_name:
+            name += s
+        table_message = "{0}  & {1:5.3f} ($\pm$ {2:5.3f}) \\\ \hline \n".format(name, regrets_dict[k][0], regrets_dict[k][1])
+        table += table_message
+    printYellow(table)
+    tt()
+    # #print("Min, Max rewards:", np.min(y_list), np.max(y_list))
+    #
+    #
+    # #Normalize the data between 0 and 1.
+    # if (normalization):
+    #     y_limits = [-0.05, 1.05]
+    #     y_list   =(y_list-np.min(y_list))/(np.max(y_list)-np.min(y_list))
+    #
+    # fig = plt.figure(title, figsize=[15,10])
+    # for i in range(len(y_list)):
+    #     label = legends[i]
+    #     y = y_list[i][:, :min_x]
+    #
+    #     print('{}: {} experiments'.format(label, len(y)))
+    #     # Compute mean for different seeds
+    #     m = np.mean(y, axis=0)
+    #     # Compute standard error
+    #     s = np.squeeze(np.asarray(np.std(y, axis=0)))
+    #     n = y.shape[0]
+    #     plt.fill_between(x, m - s / np.sqrt(n), m + s / np.sqrt(n), color=lightcolors[i % len(lightcolors)], alpha=0.5)
+    #     plt.plot(x, m, color=darkcolors[i % len(darkcolors)], label=label, linewidth=2)
+    #
+    # if timesteps:
+    #     formatter = FuncFormatter(millions)
+    #     plt.xlabel('Number of Timesteps')
+    #     fig.axes[0].xaxis.set_major_formatter(formatter)
+    # else:
+    #     plt.xlabel('Number of Episodes')
+    # if(normalization):
+    #     plt.ylabel('Normalized Rewards')
+    # else:
+    #     plt.ylabel('Rewards')
+    # plt.title(title, **fontstyle)
+    # plt.ylim(y_limits)
+    #
+    # plt.legend(framealpha=0.8, frameon=True, labelspacing=0.01, loc='lower right', fontsize=16)
+    #
+    # if not no_display:
+    #     plt.show()
 
 
 
