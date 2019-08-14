@@ -27,7 +27,8 @@ CONNECTED_TO_SIMULATOR = False
 ROBOT_WIDTH = 0.2
 ROBOT_LENGTH = 0.325 * 2
 
-
+x_init_target = np.random.uniform(0.1,1)
+y_init_target = np.random.uniform(0,1)
 def getGlobals():
     """
     :return: (dict)
@@ -170,8 +171,10 @@ class MobileRobotGymEnv(SRLGymEnv):
         self.robot_pos = np.array([x_start, y_start, 0])
 
         # Initialize target position
-        x_pos = 0.9 * self._max_x
-        y_pos = self._max_y * 3 / 4
+        x_pos = 0.90 * self._max_x
+        y_pos = self._max_y *( 0.3)
+        # x_pos = x_init_target * self._max_x
+        # y_pos = self._max_y * y_init_target
         if self._random_target:
             margin = 0.1 * self._max_x
             x_pos = self.np_random.uniform(self._min_x + margin, self._max_x - margin)

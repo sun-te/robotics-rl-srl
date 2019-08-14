@@ -27,7 +27,7 @@ def main():
                         choices=list(registered_env.keys()))
     parser.add_argument('--srl-model', type=str, nargs='+', default=["raw_pixels"], help='SRL model(s) to use',
                         choices=list(registered_srl.keys()))
-    parser.add_argument('--num-timesteps', type=int, default=1e6, help='number of timesteps the baseline should run')
+    parser.add_argument('--num-timesteps', type=int, default=2e6, help='number of timesteps the baseline should run')
     parser.add_argument('-v', '--verbose', action='store_true', default=False, help='Display baseline STDOUT')
     parser.add_argument('--num-iteration', type=int, default=15,
                         help='number of time each algorithm should be run for each unique combination of environment ' +
@@ -126,8 +126,9 @@ def main():
 
                 # redefine the parsed args for rl_baselines.train
                 loop_args = ['--srl-model', model, '--seed', str(seeds[i]), '--algo', args.algo, '--env', env,
+                             '--log-dir', 'logs/PPO2/', '--num-cpu', '12',
                              '--num-timesteps', str(int(args.num_timesteps)), '--srl-config-file', args.srl_config_file]
-                ok = subprocess.call(['python', '-m', 'rl_baselines.train'] + train_args + loop_args, stdout=stdout)
+                ok = subprocess.call(['python', '-m', 'rl_baselines.train', '--gpu', '1', '-cc'] + train_args + loop_args, stdout=stdout)
                 if ok != 0:
                     # throw the error down to the terminal
                     raise ChildProcessError("An error occured, error code: {}".format(ok))

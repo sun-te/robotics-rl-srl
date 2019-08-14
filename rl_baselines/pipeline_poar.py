@@ -33,7 +33,7 @@ def main():
     parser.add_argument('--seed', type=int, default=0,
                         help='initial seed for each unique combination of environment and srl-model.')
     parser.add_argument('--gpu', type=str, default='0')
-
+    parser.add_argument('--num-cpu', type=str, default='2')
     # returns the parsed arguments, and the rest are assumed to be arguments for rl_baselines.train
     args, train_args = parser.parse_known_args()
     envs = ["OmnirobotEnv-v0"]
@@ -48,11 +48,10 @@ def main():
     # 'reconstruction, forward, inverse, state_entropy, reward'
     srl_weights = [
                     # compare the loss on the autoencoder
-                    ["autoencoder:2:200", "reward:0:-1", "inverse:1:-1", "forward:0:-1", "entropy:0:-1"], # combination
-                    ["autoencoder:2:200", "reward:5:-1", "inverse:1:-1", "forward:0:-1", "entropy:0:-1"], # combination
-                    ["autoencoder:1:196", "reward:0:-1", "inverse:2:4", "forward:0:-1", "entropy:0:-1"],  # split
-                    ["autoencoder:1:200", "reward:5:-1", "inverse:2:4", "forward:1:4", "entropy:0:-1"],  # split
-                    # ["autoencoder:5:100", "reward:5:-1", "inverse:1:4", "forward:1:4", "entropy:0:-1"],  # split
+                    #["autoencoder:1:200", "reward:5:-1", "inverse:2:4", "forward:0:-1", "entropy:0:-1"],  # split
+                    #["autoencoder:1:120", "reward:5:-1", "inverse:2:50", "forward:1:50", "entropy:0:-1"],  # BEST !! split
+                    ["autoencoder:1:220", "reward:5:-1", "inverse:2:-1", "forward:1:-1", "entropy:0:-1"],
+                    #["autoencoder:1:100", "reward:5:-1", "inverse:2:50", "forward:2:-1", "entropy:0:-1"],  # split
                     # ["autoencoder:1:100", "reward:1:-1", "inverse:5:4", "forward:1:4", "entropy:0:-1"],  # split
                    ]
     srl_name = ['a','r','i','f','e']
@@ -78,7 +77,7 @@ def main():
                         if "autoencoder" not in w and int(w.split(":")[-1]) > 0:
                             name = "split"
                             break
-                    log_dir = 'logs/POAR{}/srl{}_{}_'.format(task, dim, name)
+                    log_dir = 'logs/POAR2e-4{}/srl_combi_{}_{}_'.format(task, dim, name)
                     weight_args = ['--losses']
                     for j, w in enumerate(weights):
                         weight = int(w.split(":")[1])
@@ -88,7 +87,7 @@ def main():
                     log_dir += '/'
                     loop_args = ['--seed', str(seeds[i-1]), '--algo', args.algo, '--env', env, '--srl-model', 'raw_pixels',
                                  '--num-timesteps', str(int(args.timesteps)),
-                                 '--log-dir', log_dir, '--gpu', str(args.gpu), '--num-cpu', '2',
+                                 '--log-dir', log_dir, '--gpu', str(args.gpu), '--num-cpu', args.num_cpu,
                                  task]
                     loop_args += weight_args
                     poar_args = ['--structure', 'srl_autoencoder']

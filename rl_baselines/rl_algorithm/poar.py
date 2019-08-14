@@ -20,8 +20,8 @@ class POARModel(StableBaselinesRLObject):
     def customArguments(self, parser):
         super().customArguments(parser)
         parser.add_argument('--num-cpu', help='Number of processes', type=int, default=1)
-        parser.add_argument('--structure', type=str, default='autoencoder', help='The structure for poar')
-        parser.add_argument('--losses', nargs='+', default=["autoencoder:1:200"], **parseLossArguments(
+        parser.add_argument('--structure', type=str, default='srl', help='The structure for poar')
+        parser.add_argument('--losses', nargs='+', default=["autoencoder"], **parseLossArguments(
             choices=["forward", "inverse", "reward", "entropy", "autoencoder"],
             help='The wanted losses. One may also want to specify a weight and dimension '
                  'that apply as follows: "<name>:<weight>:<dimension>".'))
@@ -54,8 +54,8 @@ class POARModel(StableBaselinesRLObject):
             "verbose": 1,
             "n_steps": 128,
             "ent_coef": 0.01,
-            "learning_rate": lambda f: f * 2.5e-4,
-            "srl_lr": lambda f: f * 2.5e-4,
+            "learning_rate": lambda f: f * 2e-4,
+            "srl_lr": lambda f: f * 5e-4,
             "vf_coef": 0.5,
             "max_grad_norm": 0.5,
             "gamma": 0.99,

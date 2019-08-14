@@ -15,6 +15,10 @@ from stable_baselines.a2c.utils import total_episode_reward_logger
 from stable_baselines.poar.utils import pca
 from ipdb import set_trace as tt
 import matplotlib.pyplot as plt
+from matplotlib import cm
+import seaborn as sns
+from mpl_toolkits.mplot3d import Axes3D
+sns.set()
 
 
 class POAR(ActorCriticRLModel):
@@ -247,11 +251,13 @@ class POAR(ActorCriticRLModel):
                     if "inverse" in self.srl_weight and self.srl_weight["inverse"] > 0:
                         # TODO: a continuous version should be implemented
                         weight_dict["inverse_loss"] = self.srl_weight["inverse"]
-                        inverse_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
-                            labels=tf.one_hot(
-                                self.action_ph,
-                                self.action_space.n),
-                            logits=train_model.srl_action))
+                        # inverse_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
+                        #     labels=tf.one_hot(
+                        #         self.action_ph,
+                        #         self.action_space.n),
+                        #     logits=train_model.srl_action))
+                        inverse_loss = tf.reduce_mean(tf.square(tf.one_hot(self.action_ph, self.action_space.n)
+                                                                - train_model.srl_action))
                         srl_loss_dict["inverse_loss"] = inverse_loss
                     if "forward" in self.srl_weight and self.srl_weight["forward"] > 0:
                         weight_dict["forward_loss"] = self.srl_weight["forward"]
@@ -260,7 +266,9 @@ class POAR(ActorCriticRLModel):
                     if "reward" in self.srl_weight and self.srl_weight["reward"] > 0:
                         weight_dict["reward_loss"] = self.srl_weight["reward"]
                         clip_reward = tf.one_hot(tf.cast(tf.clip_by_value(self.true_reward_ph, clip_value_min=0,
-                                                                          clip_value_max=1), tf.int32), 2)
+                                                                          clip_value_max=9), tf.int32), 10)
+                        # clip_reward = tf.one_hot(tf.cast(self.true_reward_ph+1, tf.int32), 3)
+
                         reward_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
                             logits=train_model.srl_reward, labels=clip_reward))
                         srl_loss_dict["reward_loss"] = reward_loss
@@ -445,7 +453,6 @@ class POAR(ActorCriticRLModel):
             batch_latent = []
             batch_reward = []
             n_updates = total_timesteps // self.n_batch
-
             for update in range(1, n_updates + 1):
                 assert self.n_batch % self.nminibatches == 0
 
@@ -453,36 +460,14 @@ class POAR(ActorCriticRLModel):
                 t_start = time.time()
                 frac = 1.0 - (update - 1.0) / n_updates
                 lr_now = self.learning_rate(frac)
-                srl_lr_now = max(self.srl_lr(np.exp(-(update - 1.0) * 10 / n_updates)), 1e-3*lr_now)
+                srl_lr_now = max(self.srl_lr(np.exp(-(update - 1.0) * 20  / n_updates)), 0.001*lr_now)
                 cliprange_now = self.cliprange(frac)
                 cliprange_vf_now = cliprange_vf(frac)
                 # true_reward is the reward without discount
                 # mb_obs, mb_ae_obs, mb_returns, mb_dones, mb_actions
                 obs, next_obs, returns, masks, actions, values, neglogpacs, states, ep_infos, true_reward, \
-                    reconstruct_image, latent = runner.run()
-                batch_latent.append(latent)
-                batch_reward.append(true_reward)
+                    reconstruct_image, latent, real_image = runner.run()
 
-                if update % (n_updates // 100) == 0:
-
-                    latent = np.concatenate(batch_latent)
-                    batch_reward = np.concatenate(batch_reward)
-                    fig, ax = plt.subplots(nrows=1, ncols=2)
-                    latent_pca = pca(latent)
-                    # This is for the cricular tasks!!!!!!!!!!!!!!!!!!!!!!!!!
-
-                    zeros = latent_pca[np.where(abs(batch_reward-3.5) < 3.5)].T
-                    positive = latent_pca[np.where(batch_reward > 7)].T
-                    negative = latent_pca[np.where(batch_reward < 0)].T
-
-                    ax[0].imshow((reconstruct_image[0] + 1) / 2)
-                    ax[1].scatter(zeros[0], zeros[1], c='y', s=5, label='null')
-                    ax[1].scatter(negative[0], negative[1], c='b', s=5, label='-')
-                    ax[1].scatter(positive[0], positive[1], c='r', s=5, label='+')
-                    ax[1].legend()
-                    plt.savefig("reconstruction/image_{}".format(update) + ".png")
-                    batch_reward, batch_latent = [], []
-                    plt.close(fig)
 
                 self.num_timesteps += self.n_batch
                 ep_info_buf.extend(ep_infos)
@@ -513,6 +498,56 @@ class POAR(ActorCriticRLModel):
                         self.episode_reward, true_reward.reshape(
                             (self.n_envs, self.n_steps)), masks.reshape(
                             (self.n_envs, self.n_steps)), writer, self.num_timesteps)
+                    print(self.episode_reward)
+                batch_latent.append(latent)
+
+                batch_reward.append([-1 if r < 0 else r for r in true_reward])
+
+                if update % 52 == 0:#(n_updates // 100)
+
+                    latent = np.concatenate(batch_latent)
+                    batch_reward = np.concatenate(batch_reward)
+                    # batch_reward = (batch_reward - np.min(batch_reward)) / (np.min(batch_reward) - np.max(batch_reward)) +1
+                    # fig, ax = plt.subplots(nrows=1, ncols=2)
+                    latent_pca = pca(latent, dim=2)
+                    # This is for the cricular tasks!!!!!!!!!!!!!!!!!!!!!!!!!
+                    #latent_pca = np.matmul(latent_pca, np.array([[np.cos(np.pi/4), -np.sin(np.pi/4)],[np.sin(np.pi/4), np.cos(np.pi/4)]]))
+                    # zeros = latent_pca[np.where(abs(batch_reward-3.5) < 3.5)].T
+                    # positive = latent_pca[np.where(batch_reward > 7)].T
+                    # negative = latent_pca[np.where(batch_reward < 0)].T
+                    # zeros = latent_pca[np.where(batch_reward == 0)].T
+                    # positive = latent_pca[np.where(batch_reward > 0)].T
+                    # negative = latent_pca[np.where(batch_reward < 0)].T
+                    # ax[0].imshow((reconstruct_image[0] + 1) / 2)
+                    # ax[1].scatter(zeros[0], zeros[1], c='y', s=5, label='null')
+                    # ax[1].scatter(negative[0], negative[1], c='b', s=3, label='-')
+                    # ax[1].scatter(positive[0], positive[1], c='r', s=3, label='+')
+                    # ax[1].legend()
+
+                    fig = plt.figure(figsize=(8,8));sc = plt.scatter(latent_pca[:,0], latent_pca[:,1], s=4, c = batch_reward, cmap=plt.cm.get_cmap('Spectral_r'));plt.colorbar(sc)
+                    # plt.scatter(zeros[0], zeros[1], c='y', s=4, label='null')
+                    # plt.scatter(negative[0], negative[1], c='b', s=3, label='-')
+                    # plt.scatter(positive[0], positive[1], c='r', s=4, label='+')
+                    sc = plt.scatter(latent_pca[:,0], latent_pca[:,1], s=4, c = batch_reward, cmap=plt.cm.get_cmap('Spectral_r'))
+                    plt.colorbar(sc)
+                    # plt.legend()
+
+                    # fig = plt.figure(figsize=(10, 10));plt.scatter(zeros[0], zeros[1], c='y', s=3, label='null');plt.scatter(negative[0], negative[1], c='b', s=3, label='-');plt.scatter(positive[0], positive[1], c='r', s=3, label='+');plt.legend();plt.show()
+                    plt.savefig("reconstruction/state_{}".format(update) + ".png")
+
+                    if np.mean(self.episode_reward) > 1800:
+
+                        from mpl_toolkits.mplot3d import Axes3D
+                        # latent_pca = pca(latent, dim=3).T
+                        # tt()
+                        # fig = plt.figure()
+                        # ax = Axes3D(fig)
+                        # sc = ax.scatter(latent_pca[0], latent_pca[1], latent_pca[2], c=batch_reward, cmap=plt.cm.get_cmap('Spectral_r'))
+                        # plt.colorbar(sc)
+                        #fig=plt.figure(); ax=Axes3D(fig);sc = ax.scatter(latent_pca[0], latent_pca[1], latent_pca[2], c=batch_reward, s=4, cmap=plt.cm.get_cmap('Spectral_r'));plt.colorbar(sc);plt.show()
+
+                    batch_reward, batch_latent = [], []
+                    plt.close(fig)
 
                 if self.verbose >= 1 and (
                         update % log_interval == 0 or update == 1):
@@ -675,7 +710,7 @@ class Runner(AbstractEnvRunner):
             map(swap_and_flatten, (mb_obs, mb_next_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs,
                                    true_reward, mb_latent))
         return (mb_obs, mb_next_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs, mb_states, ep_infos,
-                true_reward, ae_obs, mb_latent)
+                true_reward, ae_obs, mb_latent, self.obs)
 
 
 def get_schedule_fn(value_schedule):

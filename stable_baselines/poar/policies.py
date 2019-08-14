@@ -400,7 +400,8 @@ class SRLPolicy(SRLActorCriticPolicy):
                 dim_attr_dict[key] = (previous_dim, state_dim)
         self.next_reconstruct_obs, self.next_latent_obs = encoder_fn(self.next_processed_obs, state_dim=state_dim)
         self.reconstruct_obs, self.latent_obs = encoder_fn(self.processed_obs, state_dim=state_dim)
-        # We make nex_latent_obs to be observable from outside to compute the loss with srl_state
+        # We make next_latent_obs to be observable from outside to compute the loss with srl_state
+
         with tf.variable_scope('SRL'):
             if "forward" in split_dim:
                 self.srl_state = forward_net(
@@ -411,9 +412,18 @@ class SRLPolicy(SRLActorCriticPolicy):
                     self.latent_obs[..., dim_attr_dict["inverse"][0]:dim_attr_dict["inverse"][1]],
                     self.next_latent_obs[..., dim_attr_dict["inverse"][0]:dim_attr_dict["inverse"][1]], ac_space)
             if "reward" in split_dim:
+                # if dim_attr_dict["reward"][1] - dim_attr_dict["reward"][0] == dim_attr_dict["inverse"][1]-dim_attr_dict["inverse"][0]:
+                #     self.srl_reward = reward_net(
+                #         self.latent_obs[..., dim_attr_dict["reward"][0]:dim_attr_dict["reward"][1]] -
+                #         self.latent_obs[..., dim_attr_dict["inverse"][0]:dim_attr_dict["inverse"][1]],
+                #         self.next_latent_obs[..., dim_attr_dict["reward"][0]:dim_attr_dict["reward"][1]] -
+                #         self.next_latent_obs[..., dim_attr_dict["inverse"][0]:dim_attr_dict["inverse"][1]],
+                #         reward_dim=2
+                #     )
+                # else:
                 self.srl_reward = reward_net(
                     self.latent_obs[..., dim_attr_dict["reward"][0]:dim_attr_dict["reward"][1]],
-                    self.next_latent_obs[..., dim_attr_dict["reward"][0]:dim_attr_dict["reward"][1]], reward_dim=2)
+                    self.next_latent_obs[..., dim_attr_dict["reward"][0]:dim_attr_dict["reward"][1]], reward_dim=10)
         return self.latent_obs
 
     def step(self, obs, next_obs=None, state=None, mask=None, deterministic=False):
