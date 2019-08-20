@@ -57,7 +57,7 @@ KukaMovingButtonGymEnv-v0:
 
 MobileRobotGymEnv-v0:
   # Base path to SRL log folder
-  log_folder: srl_zoo/logs/mobile_robot_relative/
+  log_folder: srl_zoo/logs/mobilerobot/
   # Path to the different trained SRL models
   autoencoder: 18-07-22_13h36_14_custom_cnn_ST_DIM200_autoencoder/srl_model.pth
   vae: 18-07-04_11h08_56_mlp_ST_DIM2_vae/srl_model.pth
@@ -72,7 +72,7 @@ MobileRobotGymEnv-v0:
   srl_combination: 18-07-21_12h11_17_custom_cnn_ST_DIM200_autoencoder_inverse_reward/srl_model.pth
   reward_inverse: 18-07-23_11h02_28_custom_cnn_ST_DIM200_reward_inverse/srl_model.pth
   reward: 18-07-23_18h58_24_custom_cnn_ST_DIM200_reward/srl_model.pth
-  srl_splits: 18-08-14_12h53_54_custom_cnn_ST_DIM200_autoencoder_reward_inverse/srl_model.pth
+  srl_splits: 19-08-19_15h27_48_custom_cnn_ST_DIM220_autoencoder_reward_inverse_forward/srl_model.pth
   # srl_splits: 18-08-10_12h58_43_custom_cnn_ST_DIM200_reward_inverse_autoencoder/srl_model.pth
   random: 18-08-10_11h50_25_custom_cnn_ST_DIM200_random/srl_model.pth
   random_inverse: 18-08-10_11h38_05_custom_cnn_ST_DIM200_inverse_random/srl_model.pth

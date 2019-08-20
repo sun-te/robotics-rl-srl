@@ -46,6 +46,7 @@ def plotGatheredData(x_list,y_list,y_limits, timesteps,title,legends,no_display,
 
     lengths = list(map(len, x_list))
     min_x, max_x = np.min(lengths), np.max(lengths)
+    printRed("the shortest history{}".format(legends[np.argmin(legends)]))
     if truncate_x > 0:
         min_x = min(truncate_x, min_x)
     x = np.array(x_list[0][:min_x])

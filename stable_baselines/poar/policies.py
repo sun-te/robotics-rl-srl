@@ -9,7 +9,7 @@ from stable_baselines.a2c.utils import conv, linear, conv_to_fc, batch_to_seq, s
 from stable_baselines.common.policies import BasePolicy
 from stable_baselines.common.input import observation_input
 from stable_baselines.poar.utils import nature_autoencoder, bn_autoencoder, inverse_net, \
-    forward_net, autoencoderMP, naive_autoencoder, transition_net, encoder, reward_net
+    forward_net, autoencoderMP, naive_autoencoder, transition_net, encoder, reward_net, natural_autoencoder
 from gym.spaces.discrete import Discrete
 
 from stable_baselines.common.distributions import make_proba_dist_type, CategoricalProbabilityDistribution, \
@@ -393,6 +393,8 @@ class SRLPolicy(SRLActorCriticPolicy):
         """
         if structure == 'autoencoder':
             encoder_fn = nature_autoencoder
+        elif structure == 'natural':
+            encoder_fn = natural_autoencoder
         elif structure == 'naive_autoencoder':
             encoder_fn = naive_autoencoder
         else:
@@ -474,4 +476,10 @@ class AESRLPolicy(SRLPolicy):
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
         super(AESRLPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
                                           feature_extraction='cnn', structure='autoencoder', **_kwargs)
+
+
+class NAESRLPolicy(SRLPolicy):
+    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
+        super(NAESRLPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
+                                          feature_extraction='cnn', structure='natural', **_kwargs)
 

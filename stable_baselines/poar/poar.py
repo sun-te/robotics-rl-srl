@@ -57,7 +57,7 @@ class POAR(ActorCriticRLModel):
 
     def __init__(
             self, policy, env, srl_weight, gamma=0.99, n_steps=128, ent_coef=0.01, learning_rate=2.5e-4, vf_coef=0.5,
-            srl_lr=0.001, max_grad_norm=0.5, lam=0.95, nminibatches=4, noptepochs=4, cliprange=0.2, cliprange_vf=None,
+            srl_lr=0.0001, max_grad_norm=0.5, lam=0.95, nminibatches=4, noptepochs=4, cliprange=0.2, cliprange_vf=None,
             split_dim=200, verbose=0, tensorboard_log=None, _init_setup_model=True, policy_kwargs=None,
             full_tensorboard_log=False):
 
@@ -503,51 +503,51 @@ class POAR(ActorCriticRLModel):
 
                 batch_reward.append([-1 if r < 0 else r for r in true_reward])
 
-                if update % 52 == 0:#(n_updates // 100)
-
-                    latent = np.concatenate(batch_latent)
-                    batch_reward = np.concatenate(batch_reward)
-                    # batch_reward = (batch_reward - np.min(batch_reward)) / (np.min(batch_reward) - np.max(batch_reward)) +1
-                    # fig, ax = plt.subplots(nrows=1, ncols=2)
-                    latent_pca = pca(latent, dim=2)
-                    # This is for the cricular tasks!!!!!!!!!!!!!!!!!!!!!!!!!
-                    #latent_pca = np.matmul(latent_pca, np.array([[np.cos(np.pi/4), -np.sin(np.pi/4)],[np.sin(np.pi/4), np.cos(np.pi/4)]]))
-                    # zeros = latent_pca[np.where(abs(batch_reward-3.5) < 3.5)].T
-                    # positive = latent_pca[np.where(batch_reward > 7)].T
-                    # negative = latent_pca[np.where(batch_reward < 0)].T
-                    # zeros = latent_pca[np.where(batch_reward == 0)].T
-                    # positive = latent_pca[np.where(batch_reward > 0)].T
-                    # negative = latent_pca[np.where(batch_reward < 0)].T
-                    # ax[0].imshow((reconstruct_image[0] + 1) / 2)
-                    # ax[1].scatter(zeros[0], zeros[1], c='y', s=5, label='null')
-                    # ax[1].scatter(negative[0], negative[1], c='b', s=3, label='-')
-                    # ax[1].scatter(positive[0], positive[1], c='r', s=3, label='+')
-                    # ax[1].legend()
-
-                    fig = plt.figure(figsize=(8,8));sc = plt.scatter(latent_pca[:,0], latent_pca[:,1], s=4, c = batch_reward, cmap=plt.cm.get_cmap('Spectral_r'));plt.colorbar(sc)
-                    # plt.scatter(zeros[0], zeros[1], c='y', s=4, label='null')
-                    # plt.scatter(negative[0], negative[1], c='b', s=3, label='-')
-                    # plt.scatter(positive[0], positive[1], c='r', s=4, label='+')
-                    sc = plt.scatter(latent_pca[:,0], latent_pca[:,1], s=4, c = batch_reward, cmap=plt.cm.get_cmap('Spectral_r'))
-                    plt.colorbar(sc)
-                    # plt.legend()
-
-                    # fig = plt.figure(figsize=(10, 10));plt.scatter(zeros[0], zeros[1], c='y', s=3, label='null');plt.scatter(negative[0], negative[1], c='b', s=3, label='-');plt.scatter(positive[0], positive[1], c='r', s=3, label='+');plt.legend();plt.show()
-                    plt.savefig("reconstruction/state_{}".format(update) + ".png")
-
-                    if np.mean(self.episode_reward) > 1800:
-
-                        from mpl_toolkits.mplot3d import Axes3D
-                        # latent_pca = pca(latent, dim=3).T
-                        # tt()
-                        # fig = plt.figure()
-                        # ax = Axes3D(fig)
-                        # sc = ax.scatter(latent_pca[0], latent_pca[1], latent_pca[2], c=batch_reward, cmap=plt.cm.get_cmap('Spectral_r'))
-                        # plt.colorbar(sc)
-                        #fig=plt.figure(); ax=Axes3D(fig);sc = ax.scatter(latent_pca[0], latent_pca[1], latent_pca[2], c=batch_reward, s=4, cmap=plt.cm.get_cmap('Spectral_r'));plt.colorbar(sc);plt.show()
-
-                    batch_reward, batch_latent = [], []
-                    plt.close(fig)
+                # if update % 52 == 0:#(n_updates // 100)
+                #
+                #     latent = np.concatenate(batch_latent)
+                #     batch_reward = np.concatenate(batch_reward)
+                #     # batch_reward = (batch_reward - np.min(batch_reward)) / (np.min(batch_reward) - np.max(batch_reward)) +1
+                #     # fig, ax = plt.subplots(nrows=1, ncols=2)
+                #     latent_pca = pca(latent, dim=2)
+                #     # This is for the cricular tasks!!!!!!!!!!!!!!!!!!!!!!!!!
+                #     #latent_pca = np.matmul(latent_pca, np.array([[np.cos(np.pi/4), -np.sin(np.pi/4)],[np.sin(np.pi/4), np.cos(np.pi/4)]]))
+                #     # zeros = latent_pca[np.where(abs(batch_reward-3.5) < 3.5)].T
+                #     # positive = latent_pca[np.where(batch_reward > 7)].T
+                #     # negative = latent_pca[np.where(batch_reward < 0)].T
+                #     # zeros = latent_pca[np.where(batch_reward == 0)].T
+                #     # positive = latent_pca[np.where(batch_reward > 0)].T
+                #     # negative = latent_pca[np.where(batch_reward < 0)].T
+                #     # ax[0].imshow((reconstruct_image[0] + 1) / 2)
+                #     # ax[1].scatter(zeros[0], zeros[1], c='y', s=5, label='null')
+                #     # ax[1].scatter(negative[0], negative[1], c='b', s=3, label='-')
+                #     # ax[1].scatter(positive[0], positive[1], c='r', s=3, label='+')
+                #     # ax[1].legend()
+                #
+                #     fig = plt.figure(figsize=(8,8));sc = plt.scatter(latent_pca[:,0], latent_pca[:,1], s=4, c = batch_reward, cmap=plt.cm.get_cmap('Spectral_r'));plt.colorbar(sc)
+                #     # plt.scatter(zeros[0], zeros[1], c='y', s=4, label='null')
+                #     # plt.scatter(negative[0], negative[1], c='b', s=3, label='-')
+                #     # plt.scatter(positive[0], positive[1], c='r', s=4, label='+')
+                #     sc = plt.scatter(latent_pca[:,0], latent_pca[:,1], s=4, c = batch_reward, cmap=plt.cm.get_cmap('Spectral_r'))
+                #     plt.colorbar(sc)
+                #     # plt.legend()
+                #
+                #     # fig = plt.figure(figsize=(10, 10));plt.scatter(zeros[0], zeros[1], c='y', s=3, label='null');plt.scatter(negative[0], negative[1], c='b', s=3, label='-');plt.scatter(positive[0], positive[1], c='r', s=3, label='+');plt.legend();plt.show()
+                #     plt.savefig("reconstruction/state_{}".format(update) + ".png")
+                #
+                #     if np.mean(self.episode_reward) > 1800:
+                #
+                #         from mpl_toolkits.mplot3d import Axes3D
+                #         # latent_pca = pca(latent, dim=3).T
+                #         # tt()
+                #         # fig = plt.figure()
+                #         # ax = Axes3D(fig)
+                #         # sc = ax.scatter(latent_pca[0], latent_pca[1], latent_pca[2], c=batch_reward, cmap=plt.cm.get_cmap('Spectral_r'))
+                #         # plt.colorbar(sc)
+                #         #fig=plt.figure(); ax=Axes3D(fig);sc = ax.scatter(latent_pca[0], latent_pca[1], latent_pca[2], c=batch_reward, s=4, cmap=plt.cm.get_cmap('Spectral_r'));plt.colorbar(sc);plt.show()
+                #
+                #     batch_reward, batch_latent = [], []
+                #     plt.close(fig)
 
                 if self.verbose >= 1 and (
                         update % log_interval == 0 or update == 1):

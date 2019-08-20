@@ -82,9 +82,12 @@ def plotGatheredData(x_list, y_list, y_limits, timesteps, title, legends, no_dis
         'srl_split_a2r5f1i2'
     ]
     new_colormap = tuple([colormap[k%len(colormap)] for k in range(len(y_list))])
+
     for k in exp_name_dict:
         if exp_name_dict[k] == 'ppo2':
             ppo2_index = k
+        if exp_name_dict[k] == 'a2c':
+            a
     ppo2 = y_list[ppo2_index][:, :min_x]
     ppo2_m = np.mean(ppo2, axis=0)
     ppo2_s = np.squeeze(np.asarray(np.std(ppo2, axis=0)))

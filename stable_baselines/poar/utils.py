@@ -257,6 +257,39 @@ def nature_autoencoder(obs, state_dim, reuse=tf.AUTO_REUSE):
         return output, latent
 
 
+def natural_autoencoder(obs, state_dim, reuse=tf.AUTO_REUSE):
+    """
+    The autoencoder structure that has encoder similar to the original structure in PPO2
+    :param obs:
+    :param state_dim:
+    :param reuse:
+    :return:
+    """
+    activation = tf.nn.relu
+    with tf.variable_scope('encoder1', reuse=reuse):
+        e1 = activation(conv(scope='conv2d', input_tensor=obs, n_filters=64, filter_size=8, stride=4, pad='SAME'))
+    with tf.variable_scope('encoder2', reuse=reuse):
+        e2 = activation(conv(scope='conv2d', input_tensor=e1, n_filters=64, filter_size=4, stride=2, pad='SAME'))
+    with tf.variable_scope('encoder3', reuse=reuse):
+        e3 = activation(conv(scope='conv2d', input_tensor=e2, n_filters=64, filter_size=3, stride=1, pad='SAME'))
+
+    #m3 = tf.layers.max_pooling2d(e3, pool_size=2, strides=2)
+    with tf.variable_scope('latent_observation', reuse=tf.AUTO_REUSE):
+        m3_flat = conv_to_fc(e3)
+        latent = linear(scope='latent', input_tensor=m3_flat, n_hidden=state_dim)
+
+    with tf.variable_scope('decoder_fc', reuse=reuse):
+        d0 =tf.reshape(linear(scope='mlp', input_tensor=latent, n_hidden=m3_flat.get_shape()[-1]), shape=tf.shape(e3))
+    with tf.variable_scope('decoder1', reuse=reuse):
+        d1 = activation(batch_norm(tf.layers.conv2d_transpose(d0, filters=64, kernel_size=3, strides=1, padding='same')))
+    with tf.variable_scope('decoder2', reuse=reuse):
+        d2 = activation(batch_norm(tf.layers.conv2d_transpose(d1, filters=64, kernel_size=4, strides=2, padding='same')))
+    with tf.variable_scope('decoder3', reuse=reuse):
+        d3 = activation(batch_norm(tf.layers.conv2d_transpose(d2, filters=64, kernel_size=8, strides=4, padding='same')))
+    with tf.variable_scope('reconstruction', reuse=reuse):
+        output = tf.nn.tanh(conv(scope='conv2d', input_tensor=d3, n_filters=4, filter_size=5, stride=1, pad='VALID'))
+        return output, latent
+
 def encoder(obs, state_dim, reuse=tf.AUTO_REUSE):
     activation = tf.nn.relu
     with tf.variable_scope('encoder1', reuse=reuse):

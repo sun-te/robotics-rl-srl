@@ -37,6 +37,7 @@ def main():
     # returns the parsed arguments, and the rest are assumed to be arguments for rl_baselines.train
     args, train_args = parser.parse_known_args()
     envs = ["OmnirobotEnv-v0"]
+    envs = ["KukaRandButtonGymEnv-v0"]
     seeds = np.arange(args.num_iteration)
 
     printGreen("\nRunning {} benchmarks {} times...".format(args.algo, args.num_iteration))
@@ -49,7 +50,7 @@ def main():
     srl_weights = [
                     # compare the loss on the autoencoder
                     #["autoencoder:1:200", "reward:5:-1", "inverse:2:4", "forward:0:-1", "entropy:0:-1"],  # split
-                    #["autoencoder:1:120", "reward:5:-1", "inverse:2:50", "forward:1:50", "entropy:0:-1"],  # BEST !! split
+                    ["autoencoder:1:120", "reward:5:-1", "inverse:2:50", "forward:1:50", "entropy:0:-1"],  # BEST !! split
                     ["autoencoder:1:220", "reward:5:-1", "inverse:2:-1", "forward:1:-1", "entropy:0:-1"],
                     #["autoencoder:1:100", "reward:5:-1", "inverse:2:50", "forward:2:-1", "entropy:0:-1"],  # split
                     # ["autoencoder:1:100", "reward:1:-1", "inverse:5:4", "forward:1:4", "entropy:0:-1"],  # split
@@ -77,7 +78,10 @@ def main():
                         if "autoencoder" not in w and int(w.split(":")[-1]) > 0:
                             name = "split"
                             break
-                    log_dir = 'logs/POAR2e-4{}/srl_combi_{}_{}_'.format(task, dim, name)
+
+
+                    log_dir = 'logs/POAR-kuka/srl_{}_{}_'.format( name, dim)
+
                     weight_args = ['--losses']
                     for j, w in enumerate(weights):
                         weight = int(w.split(":")[1])
@@ -88,7 +92,7 @@ def main():
                     loop_args = ['--seed', str(seeds[i-1]), '--algo', args.algo, '--env', env, '--srl-model', 'raw_pixels',
                                  '--num-timesteps', str(int(args.timesteps)),
                                  '--log-dir', log_dir, '--gpu', str(args.gpu), '--num-cpu', args.num_cpu,
-                                 task]
+                                 '-r']
                     loop_args += weight_args
                     poar_args = ['--structure', 'srl_autoencoder']
                     loop_args += poar_args
