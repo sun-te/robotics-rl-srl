@@ -28,6 +28,12 @@ Documentation is available online: [https://s-rl-toolbox.readthedocs.io/](https:
 
 ## Example
 
+Use POAR algorithm to train an agent: losses mean that we use 200+50+20+10 dimension for the image reconstruction and we use the first 200 for reward, next 20 for inverse model and the last 10 for forward model. We use the first GPU to rain and the environment is with random target. If there is not enough memory of GPU, change the number of cpu. Random seed is for the envrionment. 
+
+```
+python -m rl_baselines.train --algo poar --num-timesteps 5000000 --env MobileRobotGymEnv-v0 --srl-model raw_pixels --structure srl_autoencoder --losses autoencoder:1:200 reward:50:-1 inverse:20:2 forward:10:1 --num-cpu 6 --gpu 0 -r --seed 0 --log-dir logs/POAR/
+```
+
 Here is a quick example of how to train a PPO2 agent on `MobileRobotGymEnv-v0` environment for 10 000 steps using 4 parallel processes:
 
 ```
