@@ -61,7 +61,9 @@ def policyregret(y_list, x, legends, y_max=None, normalized_by=None):
         policy_r = np.trapz(y_max - y, x)
         n_experiements = len(y)
         std = np.std(policy_r) / n_experiements
-        regrets[name] = (np.mean(policy_r), std, n_experiements)
+        # 7691 stands for the episode 8000 = 2M timesteps
+        regrets[name] = (np.mean(policy_r), std, np.mean(y[:, 7961]), np.std(y[:, 7961]), n_experiements)
+
     if normalized_by is not None:
         assert normalized_by in legends
         based_mean_regret = regrets[normalized_by][0]
@@ -69,8 +71,8 @@ def policyregret(y_list, x, legends, y_max=None, normalized_by=None):
             policy_r = np.trapz(y_max - y, x) / based_mean_regret
             n_experiements = len(y)
             std = np.std(policy_r)
-            regrets[name] = (np.mean(policy_r), std, n_experiements)
 
+            regrets[name] = (np.mean(policy_r), std,  np.mean(y[:,7961]), np.std(y[:,7961]), n_experiements)
     return regrets
 
 
@@ -92,7 +94,6 @@ def plotGatheredData(x_list,y_list, y_limits, timesteps,title,
     for i in range(len(y_list)):
         y_list[i]=y_list[i][:, :min_x]
     regrets_dict = policyregret(y_list, x, legends, normalized_by="ppo2")
-
     table = ""
     for k in regrets_dict:
         printYellow("{} experiments for algo: {}".format(regrets_dict[k][2], k))
@@ -100,7 +101,11 @@ def plotGatheredData(x_list,y_list, y_limits, timesteps,title,
         name = ""
         for s in algo_name:
             name += s
-        table_message = "{0}  & {1:5.3f} ($\pm$ {2:5.3f}) \\\ \hline \n".format(name, regrets_dict[k][0], regrets_dict[k][1])
+        table_message = "{0}  & {1:5.3f} ($\pm$ {2:5.3f}) & {3:5.3f} ($\pm$ {4:5.3f})\\\ \hline \n".format(name,
+                                                                                regrets_dict[k][0],
+                                                                                regrets_dict[k][1],
+                                                                                regrets_dict[k][2],
+                                                                                regrets_dict[k][3])
         table += table_message
     printYellow(table)
     tt()

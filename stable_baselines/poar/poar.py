@@ -284,7 +284,7 @@ class POAR(ActorCriticRLModel):
                         srl_loss_dict["state_entropy_loss"] = state_entropy_loss
 
                     self.srl_loss_list = []
-                    srl_loss = 0
+                    srl_loss = 0 #+0.001 * loss
                     for srl_loss_name in weight_dict:
                         if weight_dict[srl_loss_name] > 0:
                             srl_loss += weight_dict[srl_loss_name] * \
@@ -309,7 +309,7 @@ class POAR(ActorCriticRLModel):
                     # we do not optimize the encoder part, to protect the SRL structure
                     for i, g in enumerate(srl_grads):
                         if (g is not None) and (grads[i] is not None):
-                            grads[i] *= 0.001
+                            grads[i] *= 0
                     if self.max_grad_norm is not None:
                         grads, _grad_norm = tf.clip_by_global_norm(grads, self.max_grad_norm)
                     grads, srl_grads = list(zip(grads, self.params)), list(zip(srl_grads, self.params))
@@ -498,10 +498,10 @@ class POAR(ActorCriticRLModel):
                         self.episode_reward, true_reward.reshape(
                             (self.n_envs, self.n_steps)), masks.reshape(
                             (self.n_envs, self.n_steps)), writer, self.num_timesteps)
-                    print(self.episode_reward)
-                batch_latent.append(latent)
-
-                batch_reward.append([-1 if r < 0 else r for r in true_reward])
+                    print(self.episode_reward, 0)
+                # batch_latent.append(latent)
+                #
+                # batch_reward.append([-1 if r < 0 else r for r in true_reward])
 
                 # if update % 52 == 0:#(n_updates // 100)
                 #

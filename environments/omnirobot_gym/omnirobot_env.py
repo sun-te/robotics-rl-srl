@@ -25,11 +25,11 @@ if USING_OMNIROBOT_SIMULATOR:
 
 else:
     from real_robots.utils import recvMatrix
-
-RENDER_HEIGHT = 224
-RENDER_WIDTH = 224
-# RENDER_HEIGHT = 128
-# RENDER_WIDTH = 128
+#
+# RENDER_HEIGHT = 224
+# RENDER_WIDTH = 224
+RENDER_HEIGHT = 128
+RENDER_WIDTH = 128
 RELATIVE_POS = True
 N_CONTACTS_BEFORE_TERMINATION = 15 #10
 
@@ -252,7 +252,6 @@ class OmniRobotEnv(SRLGymEnv):
         self.reward = state_data["reward"]
         self.target_pos = np.array(state_data["target_pos"])
         self.robot_pos = np.array(state_data["position"])
-
         return state_data
 
     def getObservation(self):
