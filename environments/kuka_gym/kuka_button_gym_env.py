@@ -18,8 +18,8 @@ MAX_STEPS = 1000  # WARNING: should be also change in __init__.py (timestep_limi
 N_CONTACTS_BEFORE_TERMINATION = 5
 # Terminate the episode if the arm is outside the safety sphere during too much time
 N_STEPS_OUTSIDE_SAFETY_SPHERE = 5000
-RENDER_HEIGHT = 224
-RENDER_WIDTH = 224
+RENDER_HEIGHT = 256
+RENDER_WIDTH = 256
 Z_TABLE = -0.2
 N_DISCRETE_ACTIONS = 6
 BUTTON_LINK_IDX = 1
