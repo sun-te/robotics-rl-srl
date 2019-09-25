@@ -64,7 +64,7 @@ def main():
                         help='Model saved at episode N that we want to load')
     args = parser.parse_args()
     env_class = registered_env[args.env][0]
-    env = env_class(force_down=args.force_down)
+    env = env_class(force_down=args.force_down, multi_view=args.multi_view)
 
     discrete_step_plot(env)
 
