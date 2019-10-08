@@ -5,6 +5,9 @@
 *.pth
 data/
 trained_models/
+pybullet_data/
+urdf_robot/
+urdf/
 logs/
 logs_real/
 *.bak
