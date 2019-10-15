@@ -4,6 +4,7 @@ from ipdb import set_trace as tt
 
 urdf_path = "/home/tete/work/SJTU/kuka_play/robotics-rl-srl/urdf_robot/"
 file_path = os.path.join(urdf_path, "inmoov.urdf")
+new_file = os.path.join(urdf_path, "inmoov_col.urdf")
 
 def read_file(path):
     """
@@ -73,11 +74,27 @@ def add_collision(content, block_index, filename):
             new_content.append(space + '    <mesh filename="{}"/>'.format(filename[num_block]))
             new_content.append(space + '  </geometry>')
             new_content.append(space + '</collision>')
+            new_content.append(space + '<inertial>')
+            new_content.append(space + '  <origin rpy="0 0 0" xyz="0 0 0"/>')
+            new_content.append(space + '  <mass value="0.0"/>')
+            new_content.append(space + '  <inertia ixx="0.05" ixy="0" ixz="0" iyy="0.06" iyz="0" izz="0.03"/>')
+            new_content.append(space + '</inertial>')
             num_block += 1
     return new_content
+
+def save_list_to_file(file_name, data):
+    if os.path.exists(file_name):
+        os.remove(file_name)
+    message = ''
+    for s in data:
+        message += s + '\n'
+    file = open(file_name, 'w')
+    file.write(message)
+    file.close()
 
 if __name__ == "__main__":
     message = read_file(file_path)
     blocks, mesh_file = block_finder_by_filename(message, "link")
     new_message = add_collision(message, blocks, mesh_file)
+    save_list_to_file(new_file, new_message)
 
