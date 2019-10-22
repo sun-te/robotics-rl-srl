@@ -103,7 +103,7 @@ class KukaButtonGymEnv(SRLGymEnv):
         self._is_discrete = is_discrete
         self.terminated = False
         self.renderer = p.ER_TINY_RENDERER
-        self.debug = False
+        self.debug = True
         self.n_contacts = 0
         self.state_dim = state_dim
         self.action_joints = action_joints

@@ -66,8 +66,13 @@ def main():
     env_class = registered_env[args.env][0]
     env = env_class(force_down=args.force_down, multi_view=args.multi_view)
 
-    discrete_step_plot(env)
-
+    # discrete_step_plot(env)
+    env.reset()
+    import time
+    for i in range(100):
+        env.render()
+        time.sleep(0.5)
+    time.sleep(20)
 
 
 if __name__ == '__main__':
