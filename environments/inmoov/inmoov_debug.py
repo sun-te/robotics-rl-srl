@@ -20,7 +20,7 @@ class Inmoov:
         if self.debug_mode:
             debug_joints = []
             for j in range(self.num_joints):
-                debug_joints.append(p.addUserDebugParameter("joint_{}".format(j), -1., 1., 0))
+                debug_joints.append(p.addUserDebugParameter("joint_{}".format(j+60), -1., 1., 0))
             self.debug_joints = debug_joints
 
 
@@ -28,7 +28,7 @@ class Inmoov:
         """
         Reset the environment
         """
-        p.setGravity(0., 0., -10.)
+        p.setGravity(0., 0., GRAVITY)
         self.inmoov_id = p.loadURDF(os.path.join(self.urdf_path, 'inmoov_col.urdf'))
         self.num_joints = p.getNumJoints(self.inmoov_id)
         # tmp1 = p.getNumBodies(self.inmoov_id)  # Equal to 1, only one body
@@ -47,7 +47,10 @@ class Inmoov:
                 tmp_joint_control = p.readUserDebugParameter(j)
                 current_joints.append(tmp_joint_control)
             for jointIndex, joint_state in enumerate(current_joints):
-                p.resetJointState(self.inmoov_id, jointIndex, targetValue=joint_state)
+                try:
+                    p.resetJointState(self.inmoov_id, jointIndex+60, targetValue=joint_state)
+                except:
+                    continue
             p.stepSimulation()
 
 import time
