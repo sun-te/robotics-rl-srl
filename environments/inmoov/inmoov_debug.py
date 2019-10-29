@@ -7,7 +7,7 @@ import pybullet_data
 from ipdb import set_trace as tt
 
 URDF_PATH = "/home/tete/work/SJTU/kuka_play/robotics-rl-srl/urdf_robot/"
-GRAVITY = -9.8
+GRAVITY = -10.
 
 class Inmoov:
     def __init__(self, urdf_path=URDF_PATH):

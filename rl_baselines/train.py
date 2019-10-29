@@ -237,7 +237,7 @@ def main():
     parser.add_argument('--srl-config-file', type=str, default="config/srl_models.yaml",
                         help='Set the location of the SRL model path configuration.')
     parser.add_argument('--hyperparam', type=str, nargs='+', default=[])
-    parser.add_argument('--min-episodes-save', type=int, default=100,
+    parser.add_argument('--min-episodes-save', type=int, default=1,
                         help="Min number of episodes before saving best model")
     parser.add_argument('--latest', action='store_true', default=False,
                         help='load the latest learned model (location:srl_zoo/logs/DatasetName/)')
