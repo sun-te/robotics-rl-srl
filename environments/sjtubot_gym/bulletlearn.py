@@ -42,13 +42,14 @@ physicsClient = p.connect(p.GUI)#or p.DIRECT for non-graphical version
 # p.setAdditionalSearchPath(pybullet_data.getDataPath()) #optionally
 
 #p.setAdditionalSearchPath('urdf') #optionally
-p.setGravity(0,0,-7.0)
+p.setGravity(0,0,0.0)
+p.computeViewMatrix(cameraEyePosition=[0.5,0.5,0.5], cameraTargetPosition=[0,0,0], cameraUpVector=[0,0,0])
 
 planeId = p.loadURDF(os.path.join(_urdf_path, "plane.urdf"))
 
 cubeStartPos = [0,0,1]
 cubeStartOrientation = p.getQuaternionFromEuler([0,0,0])
-r2d2Id = p.loadURDF(os.path.join(_urdf_path, "r2d2.urdf"), cubeStartPos, cubeStartOrientation)
+#r2d2Id = p.loadURDF(os.path.join(_urdf_path, "r2d2.urdf"), cubeStartPos, cubeStartOrientation)
 # gripperId = p.loadURDF(os.path.join(pybullet_data_path, "gripper/wsg50_one_motor_gripper_left_finger.urdf"), [0,0,0])
 # huskyId = p.loadURDF(os.path.join(pybullet_data_path, "husky/husky.urdf"), [0,0,0])
 # jengaId = p.loadURDF(os.path.join(pybullet_data_path, "jenga/jenga.urdf"), [0,0,0])
@@ -63,6 +64,9 @@ r2d2Id = p.loadURDF(os.path.join(_urdf_path, "r2d2.urdf"), cubeStartPos, cubeSta
 # object2 = p.loadSDF(os.path.join(pybullet_data_path, "stadium.sdf"))
 # objects = p.loadSDF(os.path.join(_urdf_path, "kuka_iiwa/kuka_with_gripper2.sdf"))
 # sjtuID = p.loadURDF(os.path.join(sjtu_urdf_path,"inmoov_right_hand.urdf"), [1,1,1] )
+# another = p.loadSDF(os.path.join(sjtu_urdf_path, "tomato/newsdf.sdf"))
+
+another = p.loadURDF(os.path.join(sjtu_urdf_path, "tomato_plant.urdf"))
 sjtuID = p.loadURDF(os.path.join(sjtu_urdf_path,"inmoov_col.urdf"), [1,1,0] )
 # modelId = p.loadURDF(os.path.join(pybullet_data_path, "kuka_iiwa/model_free_base.urdf"),[1,1,1])
 
