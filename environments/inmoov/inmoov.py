@@ -4,12 +4,12 @@ import os
 import numpy as np
 import pybullet as p
 import pybullet_data
-# from ipdb import set_trace as tt
+from ipdb import set_trace as tt
 
-from environments.inmoov.joints_registry import joint_registry
+from environments.inmoov.joints_registry import joint_registry, control_joint
 URDF_PATH = "/home/tete/work/SJTU/kuka_play/robotics-rl-srl/urdf_robot/"
 GRAVITY = -9.8
-
+RENDER_WIDTH, RENDER_HEIGHT = 128,128
 
 class Inmoov:
     def __init__(self, urdf_path=URDF_PATH):
@@ -19,8 +19,12 @@ class Inmoov:
         self.inmoov_id = -1
         self.num_joints = -1
         self.robot_base_pos = [0, 0, 0]
+        # constraint
+        self.max_force = 200.
+        self.max_velocity = .35
 
-
+        # camera position
+        self.camera_target_pos = (0.316, -0.2, -0.1)
         if self.debug_mode:
             client_id = p.connect(p.SHARED_MEMORY)
             if client_id < 0:
@@ -38,6 +42,25 @@ class Inmoov:
             # To debug the camera position
             debug_camera = 0
         self.reset()
+
+    def apply_action(self, motor_commands):
+        """
+        Apply the action to the inmoov robot joint
+        :param motor_commands:
+        """
+        joint_poses = motor_commands
+
+        # TODO: i is what?
+        tt()
+        p.setJointMotorControl2(bodyUniqueId=self.inmoov_id, jointIndex=i, controlMode=p.POSITION_CONTROL,
+                                targetPosition=joint_poses[i], targetVelocity=0, force=self.max_force,
+                                maxVelocity=self.max_velocity, positionGain=0.3, velocityGain=1)
+
+
+    def step(self, action):
+        assert len(action) == len(control_joint)
+        # TODO
+        return
 
     def reset(self):
         """
@@ -70,6 +93,26 @@ class Inmoov:
         if self.debug_mode:
             tete = "Stupid"
 
+    def render(self):
+        camera_target_position = self.camera_target_pos
+        view_matrix1 = p.computeViewMatrixFromYawPitchRoll(
+            camera_target_position=camera_target_position,
+            distrance=1.,
+            yaw=145,
+            pitch=0,
+            roll=0,
+            upAxisIndex=2
+        )
+
+        proj_matrix1 = p.computeProjectionMatrixFOV(
+            fov=60, aspect=float(RENDER_WIDTH) / RENDER_HEIGHT,
+            nearVal=0.1, farVal=100.0)
+
+        p.getCameraImage(
+            width=128, height=128, viewMatrix=view_matrix1,
+            projectionMatrix=proj_matrix1, renderer=p.ER_TINY_RENDERER)
+
+
 import time
 if __name__ == '__main__':
 
@@ -81,8 +124,9 @@ if __name__ == '__main__':
     #tomato1Id = p.loadURDF(os.path.join(sjtu_urdf_path, "tomato_plant.urdf"), [0,1,0.5] )
     tomato2Id = p.loadURDF(os.path.join(sjtu_urdf_path, "tomato_plant.urdf"), [0.4, 0.4, 0.5], baseOrientation=[0,0,0,1])
     # robot = Inmoov()
-    for i in range(int(10e8)):
+    while True:
         time.sleep(0.01)
         robot.debugger_step()
+        robot.apply_action([1,2,3])
 
     p.disconnect()
